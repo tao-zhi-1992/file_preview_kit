@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../core/file_preview_kit_theme.dart';
 import '../core/file_preview_kit_texts.dart';
 import '../core/preview_exception.dart';
 import '../core/preview_source.dart';
@@ -14,8 +15,14 @@ import 'unsupported_file_view.dart';
 class FilePreviewView extends StatefulWidget {
   final PreviewSource source;
   final FilePreviewKitTexts? texts;
+  final ThemeData? theme;
 
-  const FilePreviewView({super.key, required this.source, this.texts});
+  const FilePreviewView({
+    super.key,
+    required this.source,
+    this.texts,
+    this.theme,
+  });
 
   @override
   State<FilePreviewView> createState() => _FilePreviewViewState();
@@ -32,7 +39,7 @@ class _FilePreviewViewState extends State<FilePreviewView> {
 
     if (!identical(_resolvedTexts, texts)) {
       _resolvedTexts = texts;
-      _previewFuture = _buildPreview(texts);
+      _previewFuture = _buildPreview(texts, _resolveTheme());
     }
   }
 
@@ -40,10 +47,12 @@ class _FilePreviewViewState extends State<FilePreviewView> {
   void didUpdateWidget(covariant FilePreviewView oldWidget) {
     super.didUpdateWidget(oldWidget);
 
-    if (oldWidget.source != widget.source || oldWidget.texts != widget.texts) {
+    if (oldWidget.source != widget.source ||
+        oldWidget.texts != widget.texts ||
+        oldWidget.theme != widget.theme) {
       final texts = _resolveTexts(context);
       _resolvedTexts = texts;
-      _previewFuture = _buildPreview(texts);
+      _previewFuture = _buildPreview(texts, _resolveTheme());
     }
   }
 
@@ -51,30 +60,38 @@ class _FilePreviewViewState extends State<FilePreviewView> {
   Widget build(BuildContext context) {
     final texts = _resolveTexts(context);
 
-    return FutureBuilder<Widget>(
-      future: _previewFuture,
-      builder: (context, snapshot) {
-        if (snapshot.connectionState != ConnectionState.done) {
-          return const PreviewLoadingView();
-        }
+    return Theme(
+      data: _resolveTheme(),
+      child: Builder(
+        builder: (context) => FutureBuilder<Widget>(
+          future: _previewFuture,
+          builder: (context, snapshot) {
+            if (snapshot.connectionState != ConnectionState.done) {
+              return const PreviewLoadingView();
+            }
 
-        if (snapshot.hasError) {
-          return PreviewErrorView(
-            title: texts.previewFailedTitle,
-            message: _errorMessage(snapshot.error, texts),
-          );
-        }
+            if (snapshot.hasError) {
+              return PreviewErrorView(
+                title: texts.previewFailedTitle,
+                message: _errorMessage(snapshot.error, texts),
+              );
+            }
 
-        return snapshot.data ??
-            PreviewErrorView(
-              title: texts.previewFailedTitle,
-              message: texts.unableToPreviewMessage,
-            );
-      },
+            return snapshot.data ??
+                PreviewErrorView(
+                  title: texts.previewFailedTitle,
+                  message: texts.unableToPreviewMessage,
+                );
+          },
+        ),
+      ),
     );
   }
 
-  Future<Widget> _buildPreview(FilePreviewKitTexts texts) async {
+  Future<Widget> _buildPreview(
+    FilePreviewKitTexts texts,
+    ThemeData theme,
+  ) async {
     final type = _detectType(widget.source);
 
     switch (type) {
@@ -83,7 +100,7 @@ class _FilePreviewViewState extends State<FilePreviewView> {
           widget.source.bytes,
         );
 
-        return ExcelPreviewView(workbook: workbook, texts: texts);
+        return ExcelPreviewView(workbook: workbook, texts: texts, theme: theme);
 
       case PreviewType.unsupported:
         return UnsupportedFileView(
@@ -112,6 +129,8 @@ class _FilePreviewViewState extends State<FilePreviewView> {
     return widget.texts ??
         FilePreviewKitTexts.resolve(Localizations.localeOf(context));
   }
+
+  ThemeData _resolveTheme() => widget.theme ?? FilePreviewKitTheme.light;
 
   String _errorMessage(Object? error, FilePreviewKitTexts texts) {
     if (error is PreviewException) {

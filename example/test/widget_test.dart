@@ -1,4 +1,5 @@
 import 'package:example/main.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -6,5 +7,7 @@ void main() {
     await tester.pumpWidget(const ExampleApp());
 
     expect(find.text('Choose XLSX file'), findsOneWidget);
+    final context = tester.element(find.text('Choose XLSX file'));
+    expect(Theme.of(context).colorScheme.primary, Colors.black);
   });
 }

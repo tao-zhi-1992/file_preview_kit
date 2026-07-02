@@ -17,7 +17,7 @@ class ExcelGridView extends StatelessWidget {
     required this.sheet,
     required this.texts,
     this.cellWidth = 120,
-    this.cellHeight = 40,
+    this.cellHeight = 36,
     this.rowHeaderWidth = 56,
     this.columnHeaderHeight = 36,
   });
@@ -49,7 +49,7 @@ class ExcelGridView extends StatelessWidget {
           foregroundDecoration: _spanBorder(context),
           backgroundDecoration: TableSpanDecoration(
             color: row == 0
-                ? Theme.of(context).colorScheme.surfaceContainerHighest
+                ? Theme.of(context).colorScheme.surfaceContainerLow
                 : Theme.of(context).colorScheme.surface,
           ),
         );
@@ -111,7 +111,7 @@ class _HeaderCell extends StatelessWidget {
     final theme = Theme.of(context);
 
     return ColoredBox(
-      color: theme.colorScheme.surfaceContainerHighest,
+      color: theme.colorScheme.surfaceContainerLow,
       child: Center(
         child: Text(
           text,

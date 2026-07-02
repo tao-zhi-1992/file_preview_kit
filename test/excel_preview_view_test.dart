@@ -30,6 +30,10 @@ void main() {
 
     await tester.pumpWidget(
       MaterialApp(
+        theme: ThemeData(
+          colorScheme: ColorScheme.fromSeed(seedColor: Colors.red),
+          useMaterial3: true,
+        ),
         home: Scaffold(body: ExcelPreviewView(workbook: workbook)),
       ),
     );
@@ -37,9 +41,90 @@ void main() {
     expect(find.text('Stock'), findsOneWidget);
     expect(find.text('A'), findsAtLeastNWidgets(1));
     expect(find.text('1'), findsAtLeastNWidgets(1));
+
+    final firstTabSize = tester.getSize(
+      find.byKey(const ValueKey('sheet-tab-0')),
+    );
+    final secondTabSize = tester.getSize(
+      find.byKey(const ValueKey('sheet-tab-1')),
+    );
+    AnimatedContainer dot(int index) => tester.widget<AnimatedContainer>(
+      find.byKey(ValueKey('sheet-tab-dot-$index')),
+    );
+    Color? dotColor(int index) =>
+        (dot(index).decoration as BoxDecoration).color;
+    final primaryColor = Theme.of(
+      tester.element(find.byKey(const ValueKey('sheet-tab-0'))),
+    ).colorScheme.primary;
+
+    expect(primaryColor, Colors.black);
+    expect(dotColor(0), primaryColor);
+    expect(dotColor(1), Colors.transparent);
+    expect(dot(0).duration, const Duration(milliseconds: 180));
+
     await tester.tap(find.text('Receipts'));
     await tester.pumpAndSettle();
+
     expect(find.text('Received'), findsOneWidget);
+    expect(dotColor(0), Colors.transparent);
+    expect(dotColor(1), primaryColor);
+    expect(
+      tester.getSize(find.byKey(const ValueKey('sheet-tab-0'))),
+      firstTabSize,
+    );
+    expect(
+      tester.getSize(find.byKey(const ValueKey('sheet-tab-1'))),
+      secondTabSize,
+    );
+  });
+
+  testWidgets('applies an explicit plugin theme', (tester) async {
+    final theme = ThemeData(
+      colorScheme: ColorScheme.fromSeed(
+        seedColor: Colors.green,
+      ).copyWith(primary: Colors.green),
+      useMaterial3: true,
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: ThemeData(
+          colorScheme: ColorScheme.fromSeed(seedColor: Colors.red),
+          useMaterial3: true,
+        ),
+        home: Scaffold(
+          body: ExcelPreviewView(
+            workbook: const ExcelWorkbook(
+              sheets: [
+                ExcelSheet(
+                  name: 'Sample',
+                  rowCount: 1,
+                  columnCount: 1,
+                  rows: [
+                    [
+                      ExcelCell(
+                        rowIndex: 0,
+                        columnIndex: 0,
+                        address: 'A1',
+                        rawValue: 'Value',
+                        displayValue: 'Value',
+                        type: ExcelCellType.string,
+                      ),
+                    ],
+                  ],
+                ),
+              ],
+            ),
+            theme: theme,
+          ),
+        ),
+      ),
+    );
+
+    final dot = tester.widget<AnimatedContainer>(
+      find.byKey(const ValueKey('sheet-tab-dot-0')),
+    );
+    expect((dot.decoration as BoxDecoration).color, Colors.green);
   });
 
   testWidgets('uses localized empty workbook and sheet messages', (

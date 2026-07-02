@@ -15,7 +15,13 @@ class ExampleApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'File Preview Kit Example',
-      theme: ThemeData(colorSchemeSeed: Colors.blue, useMaterial3: true),
+      theme: ThemeData(
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: Colors.black,
+          dynamicSchemeVariant: DynamicSchemeVariant.monochrome,
+        ),
+        useMaterial3: true,
+      ),
       home: const ExcelPreviewExamplePage(),
     );
   }

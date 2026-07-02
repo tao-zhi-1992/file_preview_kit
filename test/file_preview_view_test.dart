@@ -11,6 +11,10 @@ void main() {
 
     await tester.pumpWidget(
       MaterialApp(
+        theme: ThemeData(
+          colorScheme: ColorScheme.fromSeed(seedColor: Colors.red),
+          useMaterial3: true,
+        ),
         home: Scaffold(
           body: FilePreviewView(
             source: PreviewSource.bytes(bytes, fileName: 'simple.xlsx'),
@@ -23,6 +27,43 @@ void main() {
 
     expect(find.text('Name'), findsOneWidget);
     expect(find.text('Sample User A'), findsOneWidget);
+    final dot = tester.widget<AnimatedContainer>(
+      find.byKey(const ValueKey('sheet-tab-dot-0')),
+    );
+    expect((dot.decoration as BoxDecoration).color, Colors.black);
+  });
+
+  testWidgets('updates an explicitly provided theme', (tester) async {
+    final bytes = File('test/fixtures/xlsx/01_simple.xlsx').readAsBytesSync();
+    final source = PreviewSource.bytes(bytes, fileName: 'simple.xlsx');
+    ThemeData pluginTheme(Color primary) => ThemeData(
+      colorScheme: ColorScheme.fromSeed(
+        seedColor: primary,
+      ).copyWith(primary: primary),
+      useMaterial3: true,
+    );
+    Color? dotColor() {
+      final dot = tester.widget<AnimatedContainer>(
+        find.byKey(const ValueKey('sheet-tab-dot-0')),
+      );
+      return (dot.decoration as BoxDecoration).color;
+    }
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: FilePreviewView(source: source, theme: pluginTheme(Colors.green)),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(dotColor(), Colors.green);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: FilePreviewView(source: source, theme: pluginTheme(Colors.blue)),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(dotColor(), Colors.blue);
   });
 
   testWidgets('shows unsupported file type', (tester) async {
