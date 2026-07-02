@@ -1,0 +1,1 @@
+enum PreviewType { xlsx, unsupported }
