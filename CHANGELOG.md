@@ -1,3 +1,8 @@
 ## 0.0.1
 
-* TODO: Describe initial release.
+- Initial release of file_preview_kit.
+- Preview view for multiple file types (Excel, Word, PDF, etc.).
+- Excel support: parse .xlsx files, display sheets in a scrollable table with cell selection and column/row resizing.
+- Customizable texts and theming via `FilePreviewKitTexts` and `FilePreviewKitTheme`.
+- Error and loading states for previews.
+- Support for previewing from local file, bytes, or URL via `PreviewSource`.
