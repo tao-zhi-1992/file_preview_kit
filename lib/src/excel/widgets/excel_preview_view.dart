@@ -45,6 +45,7 @@ class ExcelPreviewView extends StatelessWidget {
           ),
           Expanded(
             child: TabBarView(
+              physics: const NeverScrollableScrollPhysics(),
               children: [
                 for (final sheet in workbook.sheets)
                   ExcelGridView(sheet: sheet, texts: resolvedTexts),
