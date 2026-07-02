@@ -102,5 +102,29 @@ void main() {
       expect(sheet.cellAt(99, 0)?.displayValue, 'Row 100');
       expect(sheet.cellAt(99, 27)?.displayValue, 'Far position');
     });
+
+    test('11 error cells', () {
+      final sheet = readWorkbook('11_error_cells.xlsx').firstSheet!;
+
+      expect(sheet.cellAt(1, 0)?.displayValue, '#DIV/0!');
+      expect(sheet.cellAt(1, 0)?.type, ExcelCellType.error);
+      expect(sheet.cellAt(2, 0)?.displayValue, '#N/A');
+      expect(sheet.cellAt(2, 0)?.type, ExcelCellType.error);
+    });
+
+    test('12 rich text shared string', () {
+      final sheet = readWorkbook('12_rich_text_shared_string.xlsx').firstSheet!;
+
+      expect(sheet.cellAt(0, 0)?.displayValue, 'Hello World');
+    });
+
+    test('13 text number', () {
+      final sheet = readWorkbook('13_text_number.xlsx').firstSheet!;
+
+      expect(sheet.cellAt(1, 1)?.displayValue, '00123');
+      expect(sheet.cellAt(1, 1)?.type, ExcelCellType.string);
+      expect(sheet.cellAt(2, 1)?.displayValue, '00000000000');
+      expect(sheet.cellAt(2, 1)?.type, ExcelCellType.string);
+    });
   });
 }

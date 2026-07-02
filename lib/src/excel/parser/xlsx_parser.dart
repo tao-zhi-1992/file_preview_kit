@@ -331,6 +331,17 @@ class XlsxParser {
       );
     }
 
+    if (type == 'e') {
+      return ExcelCell(
+        rowIndex: rowIndex,
+        columnIndex: columnIndex,
+        address: address,
+        rawValue: rawValue,
+        displayValue: rawValue,
+        type: ExcelCellType.error,
+      );
+    }
+
     return ExcelCell(
       rowIndex: rowIndex,
       columnIndex: columnIndex,
