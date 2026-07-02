@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:archive/archive.dart';
 import 'package:xml/xml.dart';
 
+import '../../core/preview_exception.dart';
 import '../models/excel_cell.dart';
 import '../models/excel_cell_type.dart';
 import '../models/excel_sheet.dart';
@@ -11,65 +12,78 @@ import '../models/excel_workbook.dart';
 
 class XlsxParser {
   ExcelWorkbook parseBytes(Uint8List bytes) {
-    final archive = ZipDecoder().decodeBytes(bytes);
+    if (bytes.isEmpty) {
+      throw const EmptyFileException();
+    }
 
-    final sharedStringsXml = _readArchiveText(archive, 'xl/sharedStrings.xml');
+    try {
+      final archive = ZipDecoder().decodeBytes(bytes);
 
-    final sharedStrings = sharedStringsXml == null
-        ? <String>[]
-        : _parseSharedStrings(sharedStringsXml);
-
-    final workbookXml = _readArchiveText(archive, 'xl/workbook.xml');
-    final relationshipsXml = _readArchiveText(
-      archive,
-      'xl/_rels/workbook.xml.rels',
-    );
-
-    if (workbookXml == null || relationshipsXml == null) {
-      final sheetXml = _readArchiveText(archive, 'xl/worksheets/sheet1.xml');
-
-      if (sheetXml == null) {
-        return const ExcelWorkbook(sheets: []);
+      if (_isPasswordProtected(archive)) {
+        throw const PasswordProtectedFileException();
       }
 
-      return ExcelWorkbook(
-        sheets: [
+      final sharedStringsXml = _readArchiveText(
+        archive,
+        'xl/sharedStrings.xml',
+      );
+
+      final sharedStrings = sharedStringsXml == null
+          ? <String>[]
+          : _parseSharedStrings(sharedStringsXml);
+
+      final workbookXml = _readArchiveText(archive, 'xl/workbook.xml');
+      final relationshipsXml = _readArchiveText(
+        archive,
+        'xl/_rels/workbook.xml.rels',
+      );
+
+      if (workbookXml == null || relationshipsXml == null) {
+        throw const InvalidXlsxException();
+      }
+
+      final sheetInfos = _parseWorkbookSheets(workbookXml);
+      final relationshipMap = _parseWorkbookRelationships(relationshipsXml);
+      final sheets = <ExcelSheet>[];
+
+      for (final sheetInfo in sheetInfos) {
+        final target = relationshipMap[sheetInfo.relationshipId];
+
+        if (target == null) {
+          continue;
+        }
+
+        final sheetXml = _readArchiveText(archive, target);
+
+        if (sheetXml == null) {
+          continue;
+        }
+
+        sheets.add(
           _parseWorksheet(
             sheetXml,
-            sheetName: 'Sheet1',
+            sheetName: sheetInfo.name,
             sharedStrings: sharedStrings,
           ),
-        ],
-      );
-    }
-
-    final sheetInfos = _parseWorkbookSheets(workbookXml);
-    final relationshipMap = _parseWorkbookRelationships(relationshipsXml);
-    final sheets = <ExcelSheet>[];
-
-    for (final sheetInfo in sheetInfos) {
-      final target = relationshipMap[sheetInfo.relationshipId];
-
-      if (target == null) {
-        continue;
+        );
       }
 
-      final sheetXml = _readArchiveText(archive, target);
+      return ExcelWorkbook(sheets: sheets);
+    } on PreviewException {
+      rethrow;
+    } catch (_) {
+      throw const InvalidXlsxException();
+    }
+  }
 
-      if (sheetXml == null) {
-        continue;
+  bool _isPasswordProtected(Archive archive) {
+    for (final file in archive.files) {
+      if (file.name == 'EncryptedPackage') {
+        return true;
       }
-
-      sheets.add(
-        _parseWorksheet(
-          sheetXml,
-          sheetName: sheetInfo.name,
-          sharedStrings: sharedStrings,
-        ),
-      );
     }
 
-    return ExcelWorkbook(sheets: sheets);
+    return false;
   }
 
   String? _readArchiveText(Archive archive, String path) {

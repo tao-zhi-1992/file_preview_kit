@@ -1,10 +1,14 @@
 import 'package:flutter/material.dart';
 
+import '../core/preview_exception.dart';
 import '../core/preview_source.dart';
 import '../core/preview_type.dart';
 import '../excel/models/excel_workbook.dart';
 import '../excel/parser/xlsx_parser.dart';
 import '../excel/widgets/excel_preview_view.dart';
+import 'preview_error_view.dart';
+import 'preview_loading_view.dart';
+import 'unsupported_file_view.dart';
 
 class FilePreviewView extends StatefulWidget {
   final PreviewSource source;
@@ -39,15 +43,15 @@ class _FilePreviewViewState extends State<FilePreviewView> {
       future: _previewFuture,
       builder: (context, snapshot) {
         if (snapshot.connectionState != ConnectionState.done) {
-          return const Center(child: CircularProgressIndicator());
+          return const PreviewLoadingView();
         }
 
         if (snapshot.hasError) {
-          return _PreviewErrorView(message: snapshot.error.toString());
+          return PreviewErrorView(message: _errorMessage(snapshot.error));
         }
 
         return snapshot.data ??
-            const _PreviewErrorView(message: 'Preview failed');
+            const PreviewErrorView(message: 'Preview failed');
       },
     );
   }
@@ -64,7 +68,7 @@ class _FilePreviewViewState extends State<FilePreviewView> {
         return ExcelPreviewView(workbook: workbook);
 
       case PreviewType.unsupported:
-        return const _UnsupportedPreviewView();
+        return const UnsupportedFileView();
     }
   }
 
@@ -82,24 +86,12 @@ class _FilePreviewViewState extends State<FilePreviewView> {
 
     return PreviewType.unsupported;
   }
-}
 
-class _UnsupportedPreviewView extends StatelessWidget {
-  const _UnsupportedPreviewView();
+  String _errorMessage(Object? error) {
+    if (error is PreviewException) {
+      return error.message;
+    }
 
-  @override
-  Widget build(BuildContext context) {
-    return const Center(child: Text('Unsupported file type'));
-  }
-}
-
-class _PreviewErrorView extends StatelessWidget {
-  final String message;
-
-  const _PreviewErrorView({required this.message});
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(child: Text(message, textAlign: TextAlign.center));
+    return 'Unable to preview this file.';
   }
 }

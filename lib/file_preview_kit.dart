@@ -1,6 +1,7 @@
 // ignore: unnecessary_library_name
 library file_preview_kit;
 
+export 'src/core/preview_exception.dart';
 export 'src/core/preview_source.dart';
 export 'src/core/preview_type.dart';
 export 'src/excel/models/excel_cell.dart';

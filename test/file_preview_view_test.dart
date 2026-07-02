@@ -18,6 +18,7 @@ void main() {
         ),
       ),
     );
+    expect(find.byType(CircularProgressIndicator), findsOneWidget);
     await tester.pumpAndSettle();
 
     expect(find.text('Name'), findsOneWidget);
@@ -35,5 +36,23 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Unsupported file type'), findsOneWidget);
+    expect(find.text('This file format is not supported yet.'), findsOneWidget);
+  });
+
+  testWidgets('shows a readable preview error', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: FilePreviewView(
+          source: PreviewSource.bytes(
+            Uint8List.fromList('broken'.codeUnits),
+            fileName: 'broken.xlsx',
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Preview failed'), findsOneWidget);
+    expect(find.text('Invalid or corrupted xlsx file'), findsOneWidget);
   });
 }
