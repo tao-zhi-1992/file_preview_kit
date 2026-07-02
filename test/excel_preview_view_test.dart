@@ -24,7 +24,7 @@ void main() {
     }
 
     final workbook = ExcelWorkbook(
-      sheets: [sheet('库存表', '库存'), sheet('入库明细', '入库')],
+      sheets: [sheet('Inventory', 'Stock'), sheet('Receipts', 'Received')],
     );
 
     await tester.pumpWidget(
@@ -33,11 +33,11 @@ void main() {
       ),
     );
 
-    expect(find.text('库存'), findsOneWidget);
+    expect(find.text('Stock'), findsOneWidget);
     expect(find.text('A'), findsAtLeastNWidgets(1));
     expect(find.text('1'), findsAtLeastNWidgets(1));
-    await tester.tap(find.text('入库明细'));
+    await tester.tap(find.text('Receipts'));
     await tester.pumpAndSettle();
-    expect(find.text('入库'), findsOneWidget);
+    expect(find.text('Received'), findsOneWidget);
   });
 }

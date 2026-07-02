@@ -20,8 +20,8 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('姓名'), findsOneWidget);
-    expect(find.text('张三'), findsOneWidget);
+    expect(find.text('Name'), findsOneWidget);
+    expect(find.text('Sample User A'), findsOneWidget);
   });
 
   testWidgets('shows unsupported file type', (tester) async {
