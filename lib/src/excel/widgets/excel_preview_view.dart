@@ -1,17 +1,22 @@
 import 'package:flutter/material.dart';
 
+import '../../core/file_preview_kit_texts.dart';
 import '../models/excel_workbook.dart';
 import 'excel_grid_view.dart';
 
 class ExcelPreviewView extends StatelessWidget {
   final ExcelWorkbook workbook;
+  final FilePreviewKitTexts? texts;
 
-  const ExcelPreviewView({super.key, required this.workbook});
+  const ExcelPreviewView({super.key, required this.workbook, this.texts});
 
   @override
   Widget build(BuildContext context) {
+    final resolvedTexts =
+        texts ?? FilePreviewKitTexts.resolve(Localizations.localeOf(context));
+
     if (workbook.sheets.isEmpty) {
-      return const Center(child: Text('No sheets found'));
+      return Center(child: Text(resolvedTexts.noSheetsFound));
     }
 
     return DefaultTabController(
@@ -31,7 +36,7 @@ class ExcelPreviewView extends StatelessWidget {
             child: TabBarView(
               children: [
                 for (final sheet in workbook.sheets)
-                  ExcelGridView(sheet: sheet),
+                  ExcelGridView(sheet: sheet, texts: resolvedTexts),
               ],
             ),
           ),

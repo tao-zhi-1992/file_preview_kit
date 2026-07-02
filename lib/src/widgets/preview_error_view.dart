@@ -1,9 +1,14 @@
 import 'package:flutter/material.dart';
 
 class PreviewErrorView extends StatelessWidget {
+  final String title;
   final String message;
 
-  const PreviewErrorView({super.key, required this.message});
+  const PreviewErrorView({
+    super.key,
+    required this.title,
+    required this.message,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -17,10 +22,7 @@ class PreviewErrorView extends StatelessWidget {
           children: [
             Icon(Icons.error_outline, size: 48, color: colorScheme.error),
             const SizedBox(height: 12),
-            Text(
-              'Preview failed',
-              style: Theme.of(context).textTheme.titleMedium,
-            ),
+            Text(title, style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 8),
             Text(
               message,

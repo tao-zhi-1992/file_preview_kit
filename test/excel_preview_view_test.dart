@@ -40,4 +40,41 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Received'), findsOneWidget);
   });
+
+  testWidgets('uses localized empty workbook and sheet messages', (
+    tester,
+  ) async {
+    const texts = FilePreviewKitTexts.zhHans();
+
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: ExcelPreviewView(
+          workbook: ExcelWorkbook(sheets: []),
+          texts: texts,
+        ),
+      ),
+    );
+    expect(find.text(texts.noSheetsFound), findsOneWidget);
+
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Scaffold(
+          body: ExcelPreviewView(
+            workbook: ExcelWorkbook(
+              sheets: [
+                ExcelSheet(
+                  name: 'Empty sample',
+                  rowCount: 0,
+                  columnCount: 0,
+                  rows: [],
+                ),
+              ],
+            ),
+            texts: texts,
+          ),
+        ),
+      ),
+    );
+    expect(find.text(texts.emptySheet), findsOneWidget);
+  });
 }

@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 
+import '../../core/file_preview_kit_texts.dart';
 import '../models/excel_sheet.dart';
 
 class ExcelGridView extends StatelessWidget {
   final ExcelSheet sheet;
+  final FilePreviewKitTexts texts;
   final double cellWidth;
   final double cellHeight;
   final double rowHeaderWidth;
@@ -12,6 +14,7 @@ class ExcelGridView extends StatelessWidget {
   const ExcelGridView({
     super.key,
     required this.sheet,
+    required this.texts,
     this.cellWidth = 120,
     this.cellHeight = 44,
     this.rowHeaderWidth = 56,
@@ -21,7 +24,7 @@ class ExcelGridView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (sheet.rows.isEmpty) {
-      return const Center(child: Text('Empty sheet'));
+      return Center(child: Text(texts.emptySheet));
     }
 
     final totalWidth = rowHeaderWidth + sheet.columnCount * cellWidth;

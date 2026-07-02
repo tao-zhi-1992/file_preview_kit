@@ -1,7 +1,14 @@
 import 'package:flutter/material.dart';
 
 class UnsupportedFileView extends StatelessWidget {
-  const UnsupportedFileView({super.key});
+  final String title;
+  final String message;
+
+  const UnsupportedFileView({
+    super.key,
+    required this.title,
+    required this.message,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -13,13 +20,10 @@ class UnsupportedFileView extends StatelessWidget {
           children: [
             const Icon(Icons.insert_drive_file_outlined, size: 48),
             const SizedBox(height: 12),
-            Text(
-              'Unsupported file type',
-              style: Theme.of(context).textTheme.titleMedium,
-            ),
+            Text(title, style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 8),
             Text(
-              'This file format is not supported yet.',
+              message,
               textAlign: TextAlign.center,
               style: Theme.of(context).textTheme.bodySmall,
             ),

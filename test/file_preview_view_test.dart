@@ -39,6 +39,52 @@ void main() {
     expect(find.text('This file format is not supported yet.'), findsOneWidget);
   });
 
+  testWidgets('uses texts resolved from the locale', (tester) async {
+    const texts = FilePreviewKitTexts.zhHans();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder: (context) => Localizations.override(
+            context: context,
+            locale: const Locale('zh'),
+            child: FilePreviewView(
+              source: PreviewSource.bytes(Uint8List(0), fileName: 'notes.txt'),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text(texts.unsupportedFileTitle), findsOneWidget);
+    expect(find.text(texts.unsupportedFileMessage), findsOneWidget);
+  });
+
+  testWidgets('uses explicitly provided texts', (tester) async {
+    const texts = FilePreviewKitTexts(
+      previewFailedTitle: 'Could not open preview',
+      unableToPreviewMessage: 'Preview is unavailable.',
+      unsupportedFileTitle: 'Unknown format',
+      unsupportedFileMessage: 'Choose a supported sample file.',
+      noSheetsFound: 'No sample sheets',
+      emptySheet: 'Sample sheet is empty',
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: FilePreviewView(
+          source: PreviewSource.bytes(Uint8List(0), fileName: 'notes.txt'),
+          texts: texts,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text(texts.unsupportedFileTitle), findsOneWidget);
+    expect(find.text(texts.unsupportedFileMessage), findsOneWidget);
+  });
+
   testWidgets('shows a readable preview error', (tester) async {
     await tester.pumpWidget(
       MaterialApp(
