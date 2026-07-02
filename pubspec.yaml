@@ -5,13 +5,14 @@ homepage:
 
 environment:
   sdk: ^3.10.9
-  flutter: ">=1.17.0"
+  flutter: ">=3.38.0"
 
 dependencies:
   flutter:
     sdk: flutter
   archive: ^3.6.1
   xml: ^6.5.0
+  two_dimensional_scrollables: ^0.5.3
 
 dev_dependencies:
   flutter_test:

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:two_dimensional_scrollables/two_dimensional_scrollables.dart';
 
 import '../../core/file_preview_kit_texts.dart';
 import '../models/excel_sheet.dart';
@@ -16,7 +17,7 @@ class ExcelGridView extends StatelessWidget {
     required this.sheet,
     required this.texts,
     this.cellWidth = 120,
-    this.cellHeight = 44,
+    this.cellHeight = 40,
     this.rowHeaderWidth = 56,
     this.columnHeaderHeight = 36,
   });
@@ -27,66 +28,62 @@ class ExcelGridView extends StatelessWidget {
       return Center(child: Text(texts.emptySheet));
     }
 
-    final totalWidth = rowHeaderWidth + sheet.columnCount * cellWidth;
-
-    return Scrollbar(
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: SizedBox(
-          width: totalWidth,
-          child: Column(
-            children: [
-              _buildColumnHeader(context),
-              Expanded(
-                child: ListView.builder(
-                  itemCount: sheet.rowCount,
-                  itemBuilder: (context, rowIndex) {
-                    final row = sheet.rows[rowIndex];
-
-                    return Row(
-                      children: [
-                        _HeaderCellBox(
-                          width: rowHeaderWidth,
-                          height: cellHeight,
-                          text: '${rowIndex + 1}',
-                        ),
-                        for (final cell in row)
-                          _ExcelCellBox(
-                            width: cellWidth,
-                            height: cellHeight,
-                            text: cell.displayValue,
-                          ),
-                      ],
-                    );
-                  },
-                ),
-              ),
-            ],
+    return TableView.builder(
+      pinnedRowCount: 1,
+      pinnedColumnCount: 1,
+      rowCount: sheet.rowCount + 1,
+      columnCount: sheet.columnCount + 1,
+      columnBuilder: (column) {
+        return TableSpan(
+          extent: FixedTableSpanExtent(
+            column == 0 ? rowHeaderWidth : cellWidth,
           ),
-        ),
-      ),
+          foregroundDecoration: _spanBorder(context),
+        );
+      },
+      rowBuilder: (row) {
+        return TableSpan(
+          extent: FixedTableSpanExtent(
+            row == 0 ? columnHeaderHeight : cellHeight,
+          ),
+          foregroundDecoration: _spanBorder(context),
+          backgroundDecoration: TableSpanDecoration(
+            color: row == 0
+                ? Theme.of(context).colorScheme.surfaceContainerHighest
+                : Theme.of(context).colorScheme.surface,
+          ),
+        );
+      },
+      cellBuilder: (context, vicinity) {
+        final row = vicinity.row;
+        final column = vicinity.column;
+
+        if (row == 0 && column == 0) {
+          return const TableViewCell(child: SizedBox.expand());
+        }
+
+        if (row == 0) {
+          return TableViewCell(
+            child: _HeaderCell(text: _columnName(column - 1)),
+          );
+        }
+
+        if (column == 0) {
+          return TableViewCell(child: _HeaderCell(text: '$row'));
+        }
+
+        final cell = sheet.cellAt(row - 1, column - 1);
+
+        return TableViewCell(child: _BodyCell(text: cell?.displayValue ?? ''));
+      },
     );
   }
 
-  Widget _buildColumnHeader(BuildContext context) {
-    return Row(
-      children: [
-        _HeaderCellBox(
-          width: rowHeaderWidth,
-          height: columnHeaderHeight,
-          text: '',
-        ),
-        for (
-          var columnIndex = 0;
-          columnIndex < sheet.columnCount;
-          columnIndex++
-        )
-          _HeaderCellBox(
-            width: cellWidth,
-            height: columnHeaderHeight,
-            text: _columnName(columnIndex),
-          ),
-      ],
+  TableSpanDecoration _spanBorder(BuildContext context) {
+    return TableSpanDecoration(
+      border: TableSpanBorder(
+        trailing: BorderSide(color: Theme.of(context).dividerColor, width: 0.5),
+      ),
     );
   }
 
@@ -104,76 +101,54 @@ class ExcelGridView extends StatelessWidget {
   }
 }
 
-class _ExcelCellBox extends StatelessWidget {
-  final double width;
-  final double height;
+class _HeaderCell extends StatelessWidget {
   final String text;
 
-  const _ExcelCellBox({
-    required this.width,
-    required this.height,
-    required this.text,
-  });
+  const _HeaderCell({required this.text});
 
   @override
   Widget build(BuildContext context) {
-    final borderColor = Theme.of(context).dividerColor;
+    final theme = Theme.of(context);
 
-    return Container(
-      width: width,
-      height: height,
-      padding: const EdgeInsets.symmetric(horizontal: 8),
-      alignment: Alignment.centerLeft,
-      decoration: BoxDecoration(
-        border: Border(
-          right: BorderSide(color: borderColor),
-          bottom: BorderSide(color: borderColor),
+    return ColoredBox(
+      color: theme.colorScheme.surfaceContainerHighest,
+      child: Center(
+        child: Text(
+          text,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: theme.textTheme.labelSmall?.copyWith(
+            fontWeight: FontWeight.w600,
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
         ),
-      ),
-      child: Text(
-        text,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style: Theme.of(context).textTheme.bodySmall,
       ),
     );
   }
 }
 
-class _HeaderCellBox extends StatelessWidget {
-  final double width;
-  final double height;
+class _BodyCell extends StatelessWidget {
   final String text;
 
-  const _HeaderCellBox({
-    required this.width,
-    required this.height,
-    required this.text,
-  });
+  const _BodyCell({required this.text});
 
   @override
   Widget build(BuildContext context) {
-    final borderColor = Theme.of(context).dividerColor;
-    final backgroundColor = Theme.of(
-      context,
-    ).colorScheme.surfaceContainerHighest;
+    final theme = Theme.of(context);
 
-    return Container(
-      width: width,
-      height: height,
-      alignment: Alignment.center,
-      decoration: BoxDecoration(
-        color: backgroundColor,
-        border: Border(
-          right: BorderSide(color: borderColor),
-          bottom: BorderSide(color: borderColor),
+    return ColoredBox(
+      color: theme.colorScheme.surface,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8),
+        child: Align(
+          alignment: Alignment.centerLeft,
+          child: Text(
+            text,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: theme.textTheme.bodySmall,
+          ),
         ),
-      ),
-      child: Text(
-        text,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style: Theme.of(context).textTheme.labelSmall,
       ),
     );
   }

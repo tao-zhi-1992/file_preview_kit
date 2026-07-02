@@ -1,6 +1,7 @@
 import 'package:file_preview_kit/file_preview_kit.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:two_dimensional_scrollables/two_dimensional_scrollables.dart';
 
 void main() {
   testWidgets('switches between workbook sheets', (tester) async {
@@ -76,5 +77,36 @@ void main() {
       ),
     );
     expect(find.text(texts.emptySheet), findsOneWidget);
+  });
+
+  testWidgets('pins headers and lazily builds table cells', (tester) async {
+    final row = List.generate(
+      50,
+      (column) =>
+          ExcelCell.blank(rowIndex: 0, columnIndex: column, address: 'A1'),
+    );
+    final sheet = ExcelSheet(
+      name: 'Large sample',
+      rowCount: 200,
+      columnCount: 50,
+      rows: List.generate(200, (_) => row),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: ExcelPreviewView(workbook: ExcelWorkbook(sheets: [sheet])),
+        ),
+      ),
+    );
+
+    final table = tester.widget<TableView>(find.byType(TableView));
+    final delegate = table.delegate as TableCellDelegateMixin;
+
+    expect(delegate.pinnedRowCount, 1);
+    expect(delegate.pinnedColumnCount, 1);
+    expect(delegate.rowCount, 201);
+    expect(delegate.columnCount, 51);
+    expect(find.byType(TableViewCell).evaluate().length, lessThan(500));
   });
 }
