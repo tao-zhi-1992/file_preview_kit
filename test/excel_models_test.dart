@@ -18,5 +18,6 @@ void main() {
     expect(workbook.sheetByName('Sheet1'), sheet);
     expect(sheet.cellAt(0, 0), cell);
     expect(sheet.cellAt(1, 0), isNull);
+    expect(cell.style, same(ExcelCellStyle.empty));
   });
 }

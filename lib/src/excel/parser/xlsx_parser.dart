@@ -6,9 +6,11 @@ import 'package:xml/xml.dart';
 
 import '../../core/preview_exception.dart';
 import '../models/excel_cell.dart';
+import '../models/excel_cell_style.dart';
 import '../models/excel_cell_type.dart';
 import '../models/excel_sheet.dart';
 import '../models/excel_workbook.dart';
+import 'styles_reader.dart';
 
 /// Parses XLSX package bytes into an [ExcelWorkbook].
 class XlsxParser {
@@ -33,6 +35,15 @@ class XlsxParser {
       final sharedStrings = sharedStringsXml == null
           ? <String>[]
           : _parseSharedStrings(sharedStringsXml);
+
+      final stylesXml = _readArchiveText(
+        archive,
+        'xl/styles.xml',
+      );
+
+      final styles = stylesXml == null
+          ? <ExcelCellStyle>[]
+          : StylesReader().parse(stylesXml);
 
       final workbookXml = _readArchiveText(archive, 'xl/workbook.xml');
       final relationshipsXml = _readArchiveText(
@@ -66,6 +77,7 @@ class XlsxParser {
             sheetXml,
             sheetName: sheetInfo.name,
             sharedStrings: sharedStrings,
+            styles: styles,
           ),
         );
       }
@@ -182,6 +194,7 @@ class XlsxParser {
     String xmlText, {
     required String sheetName,
     required List<String> sharedStrings,
+    required List<ExcelCellStyle> styles,
   }) {
     final document = XmlDocument.parse(xmlText);
 
@@ -225,6 +238,7 @@ class XlsxParser {
               ? _cellAddress(rowIndex, columnIndex)
               : address,
           sharedStrings: sharedStrings,
+          styles: styles,
         );
 
         rowCells.add(cell);
@@ -295,10 +309,17 @@ class XlsxParser {
     required int columnIndex,
     required String address,
     required List<String> sharedStrings,
+    required List<ExcelCellStyle> styles,
   }) {
     final type = cellElement.getAttribute('t');
     final valueElements = cellElement.findElements('v');
     final rawValue = valueElements.isEmpty ? '' : valueElements.first.innerText;
+
+    final styleIndex = int.tryParse(cellElement.getAttribute('s') ?? '');
+    final style =
+        styleIndex != null && styleIndex >= 0 && styleIndex < styles.length
+        ? styles[styleIndex]
+        : ExcelCellStyle.empty;
 
     if (type == 's') {
       final index = int.tryParse(rawValue);
@@ -315,6 +336,7 @@ class XlsxParser {
         rawValue: rawValue,
         displayValue: displayValue,
         type: ExcelCellType.string,
+        style: style,
       );
     }
 
@@ -331,6 +353,7 @@ class XlsxParser {
         rawValue: displayValue,
         displayValue: displayValue,
         type: ExcelCellType.string,
+        style: style,
       );
     }
 
@@ -344,6 +367,7 @@ class XlsxParser {
         rawValue: rawValue,
         displayValue: displayValue,
         type: ExcelCellType.boolean,
+        style: style,
       );
     }
 
@@ -355,6 +379,7 @@ class XlsxParser {
         rawValue: rawValue,
         displayValue: rawValue,
         type: ExcelCellType.error,
+        style: style,
       );
     }
 
@@ -365,6 +390,7 @@ class XlsxParser {
       rawValue: rawValue,
       displayValue: rawValue,
       type: rawValue.isEmpty ? ExcelCellType.blank : ExcelCellType.number,
+      style: style,
     );
   }
 

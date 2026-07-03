@@ -1,3 +1,4 @@
+import 'excel_cell_style.dart';
 import 'excel_cell_type.dart';
 
 /// A parsed spreadsheet cell.
@@ -20,6 +21,9 @@ class ExcelCell {
   /// Parsed value category.
   final ExcelCellType type;
 
+  /// Visual style resolved from `xl/styles.xml`.
+  final ExcelCellStyle style;
+
   /// Creates a spreadsheet cell.
   const ExcelCell({
     required this.rowIndex,
@@ -28,6 +32,7 @@ class ExcelCell {
     required this.rawValue,
     required this.displayValue,
     required this.type,
+    this.style = ExcelCellStyle.empty,
   });
 
   /// Creates an empty cell at the specified position.

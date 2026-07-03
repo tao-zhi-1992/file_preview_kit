@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:two_dimensional_scrollables/two_dimensional_scrollables.dart';
 
 import '../../core/file_preview_kit_texts.dart';
+import '../models/excel_cell_style.dart';
 import '../models/excel_sheet.dart';
 
 const _minimumColumnWidth = 48.0;
@@ -180,6 +181,7 @@ class _ExcelGridViewState extends State<ExcelGridView>
           child: _BodyCell(
             key: ValueKey('excel-cell-$rowIndex-$columnIndex'),
             text: cell?.displayValue ?? '',
+            style: cell?.style ?? ExcelCellStyle.empty,
             selected: selected,
             highlighted: highlighted,
             onTap: () => _selectCell(rowIndex, columnIndex),
@@ -527,6 +529,7 @@ class _ResizeGripDots extends StatelessWidget {
 
 class _BodyCell extends StatelessWidget {
   final String text;
+  final ExcelCellStyle style;
   final bool selected;
   final bool highlighted;
   final VoidCallback onTap;
@@ -534,6 +537,7 @@ class _BodyCell extends StatelessWidget {
   const _BodyCell({
     super.key,
     required this.text,
+    required this.style,
     required this.selected,
     required this.highlighted,
     required this.onTap,
@@ -542,9 +546,16 @@ class _BodyCell extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final baseBackground =
+        style.backgroundColor ?? theme.colorScheme.surface;
     final backgroundColor = highlighted
-        ? theme.colorScheme.primary.withValues(alpha: selected ? 0.12 : 0.06)
-        : theme.colorScheme.surface;
+        ? Color.alphaBlend(
+            theme.colorScheme.primary.withValues(
+              alpha: selected ? 0.12 : 0.06,
+            ),
+            baseBackground,
+          )
+        : baseBackground;
 
     return Semantics(
       selected: highlighted,
@@ -567,7 +578,14 @@ class _BodyCell extends StatelessWidget {
                   text,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.bodySmall,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    fontWeight:
+                        style.bold ? FontWeight.w600 : FontWeight.normal,
+                    fontStyle:
+                        style.italic ? FontStyle.italic : FontStyle.normal,
+                    fontSize: style.fontSize,
+                    color: style.fontColor,
+                  ),
                 ),
               ),
             ),
