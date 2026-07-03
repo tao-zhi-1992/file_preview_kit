@@ -2,8 +2,14 @@ import 'dart:typed_data';
 
 class DocxDocument {
   final List<DocxBlock> blocks;
+  final List<DocxNote> notes;
+  final List<DocxComment> comments;
 
-  const DocxDocument({required this.blocks});
+  const DocxDocument({
+    required this.blocks,
+    this.notes = const [],
+    this.comments = const [],
+  });
 }
 
 sealed class DocxBlock {
@@ -60,19 +66,29 @@ enum DocxBuiltinKind {
 
 class DocxParagraphStyle {
   final String? styleId;
+  final String? styleName;
   final DocxBuiltinKind kind;
   final DocxParagraphAlignment? align;
   final double? spacingBefore;
   final double? spacingAfter;
   final double? lineHeight;
+  final double? indentStart;
+  final double? indentEnd;
+  final double? firstLineIndent;
+  final double? hangingIndent;
 
   const DocxParagraphStyle({
     this.styleId,
+    this.styleName,
     this.kind = DocxBuiltinKind.none,
     this.align,
     this.spacingBefore,
     this.spacingAfter,
     this.lineHeight,
+    this.indentStart,
+    this.indentEnd,
+    this.firstLineIndent,
+    this.hangingIndent,
   });
 }
 
@@ -95,12 +111,16 @@ class DocxParagraph extends DocxBlock {
 class DocxTextRun {
   final String text;
   final DocxTextStyle style;
+  final String? styleId;
+  final String? styleName;
   final String? href;
   final String? anchor;
 
   const DocxTextRun({
     required this.text,
     this.style = const DocxTextStyle(),
+    this.styleId,
+    this.styleName,
     this.href,
     this.anchor,
   });
@@ -115,11 +135,7 @@ class DocxHyperlink extends DocxBlock {
   final String? anchor;
   final List<DocxTextRun> runs;
 
-  const DocxHyperlink({
-    this.href,
-    this.anchor,
-    required this.runs,
-  });
+  const DocxHyperlink({this.href, this.anchor, required this.runs});
 }
 
 // ---------------------------------------------------------------------------
@@ -150,11 +166,15 @@ class DocxBookmarkStart extends DocxBlock {
 
 class DocxTable extends DocxBlock {
   final List<DocxTableRow> rows;
+  final String? styleId;
+  final String? styleName;
   final List<double?> columnWidths;
   final bool hasBorders;
 
   const DocxTable({
     required this.rows,
+    this.styleId,
+    this.styleName,
     this.columnWidths = const [],
     this.hasBorders = false,
   });
@@ -190,12 +210,44 @@ class DocxImage extends DocxBlock {
   final String contentType;
   final double? width;
   final double? height;
+  final String? altText;
+  final String? href;
 
   DocxImage({
     required this.bytes,
     required this.contentType,
     this.width,
     this.height,
+    this.altText,
+    this.href,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Notes and comments
+// ---------------------------------------------------------------------------
+
+enum DocxNoteType { footnote, endnote }
+
+class DocxNote {
+  final String id;
+  final DocxNoteType type;
+  final List<DocxBlock> blocks;
+
+  const DocxNote({required this.id, required this.type, required this.blocks});
+}
+
+class DocxComment {
+  final String id;
+  final String? authorName;
+  final String? authorInitials;
+  final List<DocxBlock> blocks;
+
+  const DocxComment({
+    required this.id,
+    this.authorName,
+    this.authorInitials,
+    required this.blocks,
   });
 }
 

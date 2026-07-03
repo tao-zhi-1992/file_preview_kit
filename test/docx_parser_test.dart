@@ -107,28 +107,33 @@ void main() {
   });
 
   test('parses built-in style kinds for Title, Subtitle, Heading, Normal', () {
-    DocxParagraph _parseParagraph(String styleVal) {
-      return parser.parseBytes(
-        _documentBytes(
-          '<w:p><w:pPr><w:pStyle w:val="$styleVal"/></w:pPr><w:r><w:t>Text</w:t></w:r></w:p>',
-        ),
-      ).blocks.single as DocxParagraph;
-    }
-
-    expect(_parseParagraph('Title').style.kind, DocxBuiltinKind.title);
-    expect(_parseParagraph('Subtitle').style.kind, DocxBuiltinKind.subtitle);
-    expect(_parseParagraph('heading1').style.kind, DocxBuiltinKind.heading1);
-    expect(_parseParagraph('Heading 2').style.kind, DocxBuiltinKind.heading2);
-    expect(_parseParagraph('heading_3').style.kind, DocxBuiltinKind.heading3);
-    expect(_parseParagraph('Normal').style.kind, DocxBuiltinKind.normal);
-    expect(_parseParagraph('UnknownStyle').style.kind, DocxBuiltinKind.none);
-    expect(
-      (parser
+    DocxParagraph parseParagraph(String styleVal) {
+      return parser
               .parseBytes(
-                _documentBytes('<w:p><w:r><w:t>No style</w:t></w:r></w:p>'),
+                _documentBytes(
+                  '<w:p><w:pPr><w:pStyle w:val="$styleVal"/></w:pPr><w:r><w:t>Text</w:t></w:r></w:p>',
+                ),
               )
               .blocks
-              .single as DocxParagraph)
+              .single
+          as DocxParagraph;
+    }
+
+    expect(parseParagraph('Title').style.kind, DocxBuiltinKind.title);
+    expect(parseParagraph('Subtitle').style.kind, DocxBuiltinKind.subtitle);
+    expect(parseParagraph('heading1').style.kind, DocxBuiltinKind.heading1);
+    expect(parseParagraph('Heading 2').style.kind, DocxBuiltinKind.heading2);
+    expect(parseParagraph('heading_3').style.kind, DocxBuiltinKind.heading3);
+    expect(parseParagraph('Normal').style.kind, DocxBuiltinKind.normal);
+    expect(parseParagraph('UnknownStyle').style.kind, DocxBuiltinKind.none);
+    expect(
+      (parser
+                  .parseBytes(
+                    _documentBytes('<w:p><w:r><w:t>No style</w:t></w:r></w:p>'),
+                  )
+                  .blocks
+                  .single
+              as DocxParagraph)
           .style
           .kind,
       DocxBuiltinKind.none,
@@ -265,18 +270,12 @@ void main() {
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rLink1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink" Target="https://example.com"/></Relationships>''',
       ),
     );
-    // The hyperlink is emitted as a separate block between two paragraphs.
-    expect(document.blocks, hasLength(3));
-    expect(document.blocks[1], isA<DocxHyperlink>());
-    final hyperlink = document.blocks[1] as DocxHyperlink;
-    expect(hyperlink.href, 'https://example.com');
-    expect(hyperlink.anchor, isNull);
-    expect(hyperlink.runs.single.text, 'Example');
-    expect(
-      _paragraphText(document.blocks[0]),
-      'Visit ',
-    );
-    expect(_paragraphText(document.blocks[2]), ' site');
+    final paragraph = document.blocks.single as DocxParagraph;
+    expect(paragraph.runs, hasLength(3));
+    expect(paragraph.runs[1].href, 'https://example.com');
+    expect(paragraph.runs[1].anchor, isNull);
+    expect(paragraph.runs[1].text, 'Example');
+    expect(_paragraphText(paragraph), 'Visit Example site');
   });
 
   test('parses hyperlink with anchor (bookmark)', () {
@@ -285,10 +284,10 @@ void main() {
         '<w:p><w:hyperlink w:anchor="_Toc123"><w:r><w:t>Jump to toc</w:t></w:r></w:hyperlink></w:p>',
       ),
     );
-    final hyperlink = document.blocks.single as DocxHyperlink;
+    final hyperlink = (document.blocks.single as DocxParagraph).runs.single;
     expect(hyperlink.href, isNull);
     expect(hyperlink.anchor, '_Toc123');
-    expect(hyperlink.runs.single.text, 'Jump to toc');
+    expect(hyperlink.text, 'Jump to toc');
   });
 
   test('parses page break', () {
@@ -300,10 +299,7 @@ void main() {
     // The page-break paragraph produces a DocxBreak between two paragraphs.
     expect(document.blocks, hasLength(3));
     expect(document.blocks[1], isA<DocxBreak>());
-    expect(
-      (document.blocks[1] as DocxBreak).breakType,
-      DocxBreakType.page,
-    );
+    expect((document.blocks[1] as DocxBreak).breakType, DocxBreakType.page);
   });
 
   test('parses column break', () {
@@ -315,10 +311,7 @@ void main() {
     // column-break block followed by paragraph
     expect(document.blocks, hasLength(2));
     expect(document.blocks[0], isA<DocxBreak>());
-    expect(
-      (document.blocks[0] as DocxBreak).breakType,
-      DocxBreakType.column,
-    );
+    expect((document.blocks[0] as DocxBreak).breakType, DocxBreakType.column);
   });
 
   test('parses no-break hyphen and soft hyphen', () {
@@ -363,8 +356,14 @@ void main() {
       ),
     );
     final paragraph = document.blocks.single as DocxParagraph;
-    expect(paragraph.runs[0].style.verticalAlignment, DocxVerticalAlignment.superscript);
-    expect(paragraph.runs[1].style.verticalAlignment, DocxVerticalAlignment.subscript);
+    expect(
+      paragraph.runs[0].style.verticalAlignment,
+      DocxVerticalAlignment.superscript,
+    );
+    expect(
+      paragraph.runs[1].style.verticalAlignment,
+      DocxVerticalAlignment.subscript,
+    );
   });
 
   test('parses table row header flag', () {
@@ -383,19 +382,20 @@ void main() {
       _documentBytes(
         '<w:tbl><w:tblGrid><w:gridCol w:w="3000"/></w:tblGrid>'
         '<w:tr><w:tc><w:tcPr><w:vMerge w:val="restart"/></w:tcPr><w:p><w:r><w:t>Merged</w:t></w:r></w:p></w:tc></w:tr>'
-        '<w:tr><w:tc><w:tcPr><w:vMerge w:val="continue"/></w:tcPr><w:p><w:r><w:t>Ignored</w:t></w:r></w:p></w:tc></w:tr>'
+        '<w:tr><w:tc><w:tcPr><w:vMerge/></w:tcPr><w:p><w:r><w:t>Ignored</w:t></w:r></w:p></w:tc></w:tr>'
         '<w:tr><w:tc><w:p><w:r><w:t>Alone</w:t></w:r></w:p></w:tc></w:tr>'
         '</w:tbl>',
       ),
     );
     final table = document.blocks.single as DocxTable;
     // vMerge cells are skipped; only restart and standalone cells remain.
-    expect(table.rows[0].cells.single.rowSpan, greaterThan(1));
-    expect(table.rows[0].cells.single.blocks
-        .whereType<DocxParagraph>()
-        .expand((p) => p.runs)
-        .map((r) => r.text)
-        .join(),
+    expect(table.rows[0].cells.single.rowSpan, 2);
+    expect(
+      table.rows[0].cells.single.blocks
+          .whereType<DocxParagraph>()
+          .expand((p) => p.runs)
+          .map((r) => r.text)
+          .join(),
       'Merged',
     );
     // Second row's cell should be skipped (vMerge=continue).
@@ -439,6 +439,38 @@ void main() {
     expect(run.style.color, 0xFFCC0000);
   });
 
+  test('keeps table style identifiers and names', () {
+    final document = parser.parseBytes(
+      _documentBytes(
+        '<w:tbl><w:tblPr><w:tblStyle w:val="DataTable"/></w:tblPr><w:tr><w:tc><w:p/></w:tc></w:tr></w:tbl>',
+        stylesXml:
+            '''<w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:style w:type="table" w:styleId="DataTable"><w:name w:val="Fictional Data Table"/></w:style></w:styles>''',
+      ),
+    );
+    final table = document.blocks.single as DocxTable;
+
+    expect(table.styleId, 'DataTable');
+    expect(table.styleName, 'Fictional Data Table');
+  });
+
+  test('parses legacy image data and alternative text', () {
+    final document = parser.parseBytes(
+      _documentBytes(
+        '<w:p><w:r><w:pict><v:shape xmlns:v="urn:schemas-microsoft-com:vml"><v:imagedata r:id="legacyImage" o:title="Fictional chart" xmlns:o="urn:schemas-microsoft-com:office:office"/></v:shape></w:pict></w:r></w:p>',
+        relationships:
+            '''<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="legacyImage" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/legacy.png"/></Relationships>''',
+        extraFiles: {
+          'word/media/legacy.png': [137, 80, 78, 71],
+        },
+      ),
+    );
+    final image = document.blocks.single as DocxImage;
+
+    expect(image.bytes, [137, 80, 78, 71]);
+    expect(image.contentType, 'image/png');
+    expect(image.altText, 'Fictional chart');
+  });
+
   test('keeps image metadata when the related media file is missing', () {
     final document = parser.parseBytes(
       _documentBytes(
@@ -451,6 +483,165 @@ void main() {
 
     expect(image.bytes, isEmpty);
     expect(image.contentType, 'image/png');
+  });
+
+  test('finds the main document and related parts from relationships', () {
+    final document = parser.parseBytes(
+      _documentBytes(
+        '<w:p><w:r><w:t>Relationship document</w:t></w:r></w:p>',
+        documentPath: 'custom/main.xml',
+        packageRelationships: '''<?xml version="1.0" encoding="UTF-8"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="main" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="custom/main.xml"/></Relationships>''',
+      ),
+    );
+
+    expect(_paragraphText(document.blocks.single), 'Relationship document');
+  });
+
+  test('parses paragraph metadata and inherited run formatting', () {
+    final document = parser.parseBytes(
+      _documentBytes(
+        '<w:p><w:pPr><w:pStyle w:val="Notice"/><w:ind w:start="300" w:end="150" w:firstLine="120"/></w:pPr><w:r><w:t>Inherited</w:t></w:r><w:r><w:rPr><w:b w:val="false"/></w:rPr><w:t> override</w:t></w:r></w:p>',
+        stylesXml: '''<?xml version="1.0" encoding="UTF-8"?>
+<w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:style w:type="paragraph" w:styleId="Notice"><w:name w:val="Heading 2"/><w:pPr><w:jc w:val="center"/></w:pPr><w:rPr><w:b/><w:color w:val="336699"/></w:rPr></w:style></w:styles>''',
+      ),
+    );
+    final paragraph = document.blocks.single as DocxParagraph;
+
+    expect(paragraph.style.styleName, 'Heading 2');
+    expect(paragraph.style.kind, DocxBuiltinKind.heading2);
+    expect(paragraph.style.align, DocxParagraphAlignment.center);
+    expect(paragraph.style.indentStart, 20);
+    expect(paragraph.style.indentEnd, 10);
+    expect(paragraph.style.firstLineIndent, 8);
+    expect(paragraph.runs.first.style.bold, isTrue);
+    expect(paragraph.runs.first.style.color, 0xFF336699);
+    expect(paragraph.runs.last.style.bold, isFalse);
+  });
+
+  test('parses complex field hyperlinks and form checkboxes', () {
+    final document = parser.parseBytes(
+      _documentBytes(
+        '<w:p><w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText> HYPERLINK "https://example.test/guide" </w:instrText></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r><w:r><w:t>Guide</w:t></w:r><w:r><w:fldChar w:fldCharType="end"/></w:r></w:p>'
+        '<w:p><w:r><w:fldChar w:fldCharType="begin"><w:ffData><w:checkBox><w:checked w:val="1"/></w:checkBox></w:ffData></w:fldChar></w:r><w:r><w:instrText> FORMCHECKBOX </w:instrText></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r><w:r><w:fldChar w:fldCharType="end"/></w:r></w:p>',
+      ),
+    );
+    final hyperlink = (document.blocks[0] as DocxParagraph).runs.single;
+
+    expect(hyperlink.text, 'Guide');
+    expect(hyperlink.href, 'https://example.test/guide');
+    expect(_paragraphText(document.blocks[1]), '☑');
+  });
+
+  test('parses structured checkboxes bookmarks and fallback content', () {
+    final document = parser.parseBytes(
+      _documentBytes(
+        '<w:p><w:bookmarkStart w:name="section-one"/><w:sdt><w:sdtPr><w14:checkbox xmlns:w14="http://schemas.microsoft.com/office/word/2010/wordml"><w14:checked w14:val="1"/></w14:checkbox></w:sdtPr><w:sdtContent><w:r><w:t>☐ task</w:t></w:r></w:sdtContent></w:sdt><mc:AlternateContent xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"><mc:Choice Requires="x"><w:r><w:t>Unsupported</w:t></w:r></mc:Choice><mc:Fallback><w:r><w:t> fallback</w:t></w:r></mc:Fallback></mc:AlternateContent></w:p>',
+      ),
+    );
+    final paragraph = document.blocks.single as DocxParagraph;
+
+    expect(paragraph.runs.first.anchor, 'section-one');
+    expect(_paragraphText(paragraph), '☑ task fallback');
+  });
+
+  test('ignores deleted runs and deleted table rows', () {
+    final document = parser.parseBytes(
+      _documentBytes(
+        '<w:p><w:del><w:r><w:t>Removed</w:t></w:r></w:del><w:ins><w:r><w:t>Kept</w:t></w:r></w:ins></w:p>'
+        '<w:tbl><w:tr><w:trPr><w:del/></w:trPr><w:tc><w:p><w:r><w:t>Removed row</w:t></w:r></w:p></w:tc></w:tr><w:tr><w:tc><w:p><w:r><w:t>Kept row</w:t></w:r></w:p></w:tc></w:tr></w:tbl>',
+      ),
+    );
+
+    expect(_paragraphText(document.blocks.first), 'Kept');
+    final table = document.blocks.last as DocxTable;
+    expect(table.rows, hasLength(1));
+    expect(_cellText(table.rows.single.cells.single), 'Kept row');
+  });
+
+  test('joins content across a deleted paragraph boundary', () {
+    final document = parser.parseBytes(
+      _documentBytes(
+        '<w:p><w:pPr><w:rPr><w:del/></w:rPr></w:pPr><w:r><w:t>Before </w:t></w:r></w:p><w:p><w:r><w:t>after</w:t></w:r></w:p>',
+      ),
+    );
+
+    expect(document.blocks, hasLength(1));
+    expect(_paragraphText(document.blocks.single), 'Before after');
+  });
+
+  test('parses numbering inherited from a paragraph style', () {
+    final document = parser.parseBytes(
+      _documentBytes(
+        '<w:p><w:pPr><w:pStyle w:val="LetterList"/></w:pPr><w:r><w:t>Styled item</w:t></w:r></w:p>',
+        extraParts: {
+          'word/numbering.xml':
+              '''<w:numbering xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:abstractNum w:abstractNumId="4"><w:lvl w:ilvl="0"><w:start w:val="3"/><w:numFmt w:val="lowerLetter"/><w:pStyle w:val="LetterList"/></w:lvl></w:abstractNum><w:num w:numId="8"><w:abstractNumId w:val="4"/></w:num></w:numbering>''',
+        },
+      ),
+    );
+    final list = (document.blocks.single as DocxParagraph).list!;
+
+    expect(list.type, DocxListType.numbered);
+    expect(list.number, 3);
+  });
+
+  test('resolves linked numbering styles and start overrides', () {
+    final document = parser.parseBytes(
+      _documentBytes(
+        '<w:p><w:pPr><w:numPr><w:ilvl w:val="0"/><w:numId w:val="5"/></w:numPr></w:pPr><w:r><w:t>Overridden item</w:t></w:r></w:p>',
+        stylesXml:
+            '''<w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:style w:type="numbering" w:styleId="LinkedList"><w:pPr><w:numPr><w:numId w:val="10"/></w:numPr></w:pPr></w:style></w:styles>''',
+        extraParts: {
+          'word/numbering.xml':
+              '''<w:numbering xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:abstractNum w:abstractNumId="1"><w:numStyleLink w:val="LinkedList"/></w:abstractNum><w:abstractNum w:abstractNumId="2"><w:lvl w:ilvl="0"><w:start w:val="2"/><w:numFmt w:val="decimal"/></w:lvl></w:abstractNum><w:num w:numId="10"><w:abstractNumId w:val="2"/></w:num><w:num w:numId="5"><w:abstractNumId w:val="1"/><w:lvlOverride w:ilvl="0"><w:startOverride w:val="7"/></w:lvlOverride></w:num></w:numbering>''',
+        },
+      ),
+    );
+    final list = (document.blocks.single as DocxParagraph).list!;
+
+    expect(list.type, DocxListType.numbered);
+    expect(list.number, 7);
+  });
+
+  test('extracts footnotes endnotes and comments with references', () {
+    final relationships = '''<?xml version="1.0" encoding="UTF-8"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="footnotes" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/footnotes" Target="footnotes.xml"/><Relationship Id="endnotes" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/endnotes" Target="endnotes.xml"/><Relationship Id="comments" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/comments" Target="comments.xml"/></Relationships>''';
+    final document = parser.parseBytes(
+      _documentBytes(
+        '<w:p><w:r><w:t>Text</w:t><w:footnoteReference w:id="2"/><w:endnoteReference w:id="3"/><w:commentReference w:id="4"/></w:r></w:p>',
+        relationships: relationships,
+        extraParts: {
+          'word/footnotes.xml':
+              '<w:footnotes xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:footnote w:type="separator" w:id="-1"/><w:footnote w:id="2"><w:p><w:r><w:t>Footnote text</w:t></w:r></w:p></w:footnote></w:footnotes>',
+          'word/endnotes.xml':
+              '<w:endnotes xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:endnote w:id="3"><w:p><w:r><w:t>Endnote text</w:t></w:r></w:p></w:endnote></w:endnotes>',
+          'word/comments.xml':
+              '<w:comments xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:comment w:id="4" w:author="Fictional Reviewer" w:initials="FR"><w:p><w:r><w:t>Comment text</w:t></w:r></w:p></w:comment></w:comments>',
+        },
+      ),
+    );
+
+    expect(_paragraphText(document.blocks.single), 'Text[1][2][1]');
+    expect(document.notes, hasLength(2));
+    expect(document.notes.first.type, DocxNoteType.footnote);
+    expect(_paragraphText(document.notes.first.blocks.single), 'Footnote text');
+    expect(document.comments.single.authorName, 'Fictional Reviewer');
+    expect(
+      _paragraphText(document.comments.single.blocks.single),
+      'Comment text',
+    );
+  });
+
+  test('extracts text box content without creating a broken image', () {
+    final document = parser.parseBytes(
+      _documentBytes(
+        '<w:p><w:r><w:t>Body</w:t><w:drawing><w:txbxContent><w:p><w:r><w:t>Text box</w:t></w:r></w:p></w:txbxContent></w:drawing></w:r></w:p>',
+      ),
+    );
+
+    expect(document.blocks.whereType<DocxImage>(), isEmpty);
+    expect(document.blocks.map(_paragraphText), ['Body', 'Text box']);
   });
 }
 
@@ -470,29 +661,55 @@ String _paragraphText(DocxBlock block) {
   return (block as DocxParagraph).runs.map((run) => run.text).join();
 }
 
-Uint8List _documentBytes(String body, {String? relationships, String? stylesXml}) {
+Uint8List _documentBytes(
+  String body, {
+  String? relationships,
+  String? stylesXml,
+  String documentPath = 'word/document.xml',
+  String? packageRelationships,
+  Map<String, String> extraParts = const {},
+  Map<String, List<int>> extraFiles = const {},
+}) {
   final xml = utf8.encode(
     '''<?xml version="1.0" encoding="UTF-8"?>
 <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><w:body>$body</w:body></w:document>''',
   );
   final archive = Archive()
-    ..addFile(ArchiveFile('word/document.xml', xml.length, xml));
+    ..addFile(ArchiveFile(documentPath, xml.length, xml));
 
   if (relationships != null) {
     final bytes = utf8.encode(relationships);
     archive.addFile(
-      ArchiveFile('word/_rels/document.xml.rels', bytes.length, bytes),
+      ArchiveFile(_relationshipsPath(documentPath), bytes.length, bytes),
     );
   }
 
   if (stylesXml != null) {
     final bytes = utf8.encode(stylesXml);
-    archive.addFile(
-      ArchiveFile('word/styles.xml', bytes.length, bytes),
-    );
+    archive.addFile(ArchiveFile('word/styles.xml', bytes.length, bytes));
+  }
+
+  if (packageRelationships != null) {
+    final bytes = utf8.encode(packageRelationships);
+    archive.addFile(ArchiveFile('_rels/.rels', bytes.length, bytes));
+  }
+
+  for (final entry in extraParts.entries) {
+    final bytes = utf8.encode(entry.value);
+    archive.addFile(ArchiveFile(entry.key, bytes.length, bytes));
+  }
+  for (final entry in extraFiles.entries) {
+    archive.addFile(ArchiveFile(entry.key, entry.value.length, entry.value));
   }
 
   return Uint8List.fromList(ZipEncoder().encode(archive)!);
+}
+
+String _relationshipsPath(String path) {
+  final slash = path.lastIndexOf('/');
+  final directory = slash < 0 ? '' : path.substring(0, slash + 1);
+  final filename = slash < 0 ? path : path.substring(slash + 1);
+  return '${directory}_rels/$filename.rels';
 }
 
 const _drawing =

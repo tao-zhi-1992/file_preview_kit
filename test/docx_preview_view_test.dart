@@ -60,113 +60,112 @@ void main() {
     expect(padding.padding, const EdgeInsets.only(top: 12, bottom: 6));
   });
 
-  testWidgets('renders multi-style text with font size color highlight alignment', (
-    tester,
-  ) async {
-    const document = DocxDocument(
-      blocks: [
-        DocxParagraph(
-          style: DocxParagraphStyle(
-            styleId: 'Title',
-            kind: DocxBuiltinKind.title,
-            align: DocxParagraphAlignment.center,
-            spacingBefore: 20,
-            spacingAfter: 10,
-            lineHeight: 1.8,
-          ),
-          runs: [
-            DocxTextRun(
-              text: 'Styled Document',
-              style: DocxTextStyle(
-                bold: true,
-                fontSize: 28,
-                color: 0xFF1A237E,
+  testWidgets(
+    'renders multi-style text with font size color highlight alignment',
+    (tester) async {
+      const document = DocxDocument(
+        blocks: [
+          DocxParagraph(
+            style: DocxParagraphStyle(
+              styleId: 'Title',
+              kind: DocxBuiltinKind.title,
+              align: DocxParagraphAlignment.center,
+              spacingBefore: 20,
+              spacingAfter: 10,
+              lineHeight: 1.8,
+            ),
+            runs: [
+              DocxTextRun(
+                text: 'Styled Document',
+                style: DocxTextStyle(
+                  bold: true,
+                  fontSize: 28,
+                  color: 0xFF1A237E,
+                ),
               ),
-            ),
-          ],
-        ),
-        DocxParagraph(
-          style: DocxParagraphStyle(
-            align: DocxParagraphAlignment.right,
-            spacingBefore: 8,
-            spacingAfter: 4,
+            ],
           ),
-          runs: [
-            DocxTextRun(
-              text: 'Italic and ',
-              style: DocxTextStyle(italic: true),
+          DocxParagraph(
+            style: DocxParagraphStyle(
+              align: DocxParagraphAlignment.right,
+              spacingBefore: 8,
+              spacingAfter: 4,
             ),
-            DocxTextRun(
-              text: 'underlined ',
-              style: DocxTextStyle(underline: true),
-            ),
-            DocxTextRun(
-              text: 'strikethrough',
-              style: DocxTextStyle(strike: true),
-            ),
-          ],
-        ),
-        DocxParagraph(
-          runs: [
-            DocxTextRun(
-              text: 'Highlighted text',
-              style: DocxTextStyle(
-                highlightColor: 0xFFFFFF00,
-                fontSize: 20,
+            runs: [
+              DocxTextRun(
+                text: 'Italic and ',
+                style: DocxTextStyle(italic: true),
               ),
-            ),
-          ],
+              DocxTextRun(
+                text: 'underlined ',
+                style: DocxTextStyle(underline: true),
+              ),
+              DocxTextRun(
+                text: 'strikethrough',
+                style: DocxTextStyle(strike: true),
+              ),
+            ],
+          ),
+          DocxParagraph(
+            runs: [
+              DocxTextRun(
+                text: 'Highlighted text',
+                style: DocxTextStyle(highlightColor: 0xFFFFFF00, fontSize: 20),
+              ),
+            ],
+          ),
+        ],
+      );
+
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: Scaffold(body: DocxPreviewView(document: document)),
         ),
-      ],
-    );
+      );
 
-    await tester.pumpWidget(
-      const MaterialApp(
-        home: Scaffold(body: DocxPreviewView(document: document)),
-      ),
-    );
+      // Title: center alignment, bold, large font, custom color
+      final titleRichText = tester
+          .widgetList<RichText>(find.byType(RichText))
+          .first;
+      expect(titleRichText.textAlign, TextAlign.center);
+      final titleSpan = titleRichText.text as TextSpan;
+      expect(titleSpan.style!.fontWeight, FontWeight.bold);
+      expect(titleSpan.style!.fontSize, 26); // overridden by style kind
+      expect(titleSpan.children!.single.style!.color, const Color(0xFF1A237E));
+      expect(titleSpan.children!.single.style!.fontSize, 28);
 
-    // Title: center alignment, bold, large font, custom color
-    final titleRichText =
-        tester.widgetList<RichText>(find.byType(RichText)).first;
-    expect(titleRichText.textAlign, TextAlign.center);
-    final titleSpan = titleRichText.text as TextSpan;
-    expect(titleSpan.style!.fontWeight, FontWeight.bold);
-    expect(titleSpan.style!.fontSize, 26); // overridden by style kind
-    expect(titleSpan.children!.single.style!.color, const Color(0xFF1A237E));
-    expect(titleSpan.children!.single.style!.fontSize, 28);
+      // First paragraph padding
+      final paddings = tester
+          .widgetList<Padding>(find.byType(Padding))
+          .toList();
+      expect(
+        paddings[0].padding,
+        const EdgeInsets.only(left: 0, top: 20, bottom: 10),
+      );
 
-    // First paragraph padding
-    final paddings = tester.widgetList<Padding>(find.byType(Padding)).toList();
-    expect(
-      paddings[0].padding,
-      const EdgeInsets.only(left: 0, top: 20, bottom: 10),
-    );
+      // Italic, underline, strikethrough in second paragraph
+      final secondRichText = tester
+          .widgetList<RichText>(find.byType(RichText))
+          .toList()[1];
+      expect(secondRichText.textAlign, TextAlign.right);
+      final secondChildren = (secondRichText.text as TextSpan).children!
+          .cast<TextSpan>();
+      expect(secondChildren[0].style!.fontStyle, FontStyle.italic);
+      expect(secondChildren[1].style!.decoration, TextDecoration.underline);
+      expect(secondChildren[2].style!.decoration, TextDecoration.lineThrough);
 
-    // Italic, underline, strikethrough in second paragraph
-    final secondRichText =
-        tester.widgetList<RichText>(find.byType(RichText)).toList()[1];
-    expect(secondRichText.textAlign, TextAlign.right);
-    final secondChildren =
-        (secondRichText.text as TextSpan).children!.cast<TextSpan>();
-    expect(secondChildren[0].style!.fontStyle, FontStyle.italic);
-    expect(secondChildren[1].style!.decoration, TextDecoration.underline);
-    expect(
-      secondChildren[2].style!.decoration,
-      TextDecoration.lineThrough,
-    );
-
-    // Highlighted text with custom font size
-    final thirdChildren =
-        (tester.widgetList<RichText>(find.byType(RichText)).toList()[2].text
-                as TextSpan)
-            .children!
-            .cast<TextSpan>();
-    expect(
-      thirdChildren.single.style!.backgroundColor,
-      const Color(0xFFFFFF00),
-    );
-  });
+      // Highlighted text with custom font size
+      final thirdChildren =
+          (tester.widgetList<RichText>(find.byType(RichText)).toList()[2].text
+                  as TextSpan)
+              .children!
+              .cast<TextSpan>();
+      expect(
+        thirdChildren.single.style!.backgroundColor,
+        const Color(0xFFFFFF00),
+      );
+    },
+  );
 
   testWidgets('renders mixed paragraphs and a table', (tester) async {
     const document = DocxDocument(
@@ -390,7 +389,7 @@ void main() {
       blocks: [
         DocxImage(
           bytes: Uint8List.fromList([1, 2, 3]),
-          contentType: 'image/gif',
+          contentType: 'image/tiff',
         ),
       ],
     );
@@ -405,5 +404,77 @@ void main() {
       find.byKey(const ValueKey('docx-image-unavailable')),
       findsOneWidget,
     );
+  });
+
+  testWidgets('opens inline links and applies paragraph indentation', (
+    tester,
+  ) async {
+    final opened = <String>[];
+    const document = DocxDocument(
+      blocks: [
+        DocxParagraph(
+          style: DocxParagraphStyle(indentStart: 20, indentEnd: 10),
+          runs: [
+            DocxTextRun(text: 'Read '),
+            DocxTextRun(text: 'Example', href: 'https://example.test/guide'),
+          ],
+        ),
+      ],
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: DocxPreviewView(document: document, onLinkTap: opened.add),
+        ),
+      ),
+    );
+    await tester.tap(find.text('Example'));
+
+    expect(opened, ['https://example.test/guide']);
+    final padding = tester.widget<Padding>(find.byType(Padding).first);
+    expect(
+      padding.padding,
+      const EdgeInsets.only(left: 20, right: 10, bottom: 8),
+    );
+  });
+
+  testWidgets('renders extracted notes and comments', (tester) async {
+    const document = DocxDocument(
+      blocks: [
+        DocxParagraph(runs: [DocxTextRun(text: 'Document text')]),
+      ],
+      notes: [
+        DocxNote(
+          id: '2',
+          type: DocxNoteType.footnote,
+          blocks: [
+            DocxParagraph(runs: [DocxTextRun(text: 'Footnote text')]),
+          ],
+        ),
+      ],
+      comments: [
+        DocxComment(
+          id: '4',
+          authorName: 'Fictional Reviewer',
+          authorInitials: 'FR',
+          blocks: [
+            DocxParagraph(runs: [DocxTextRun(text: 'Comment text')]),
+          ],
+        ),
+      ],
+    );
+
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Scaffold(body: DocxPreviewView(document: document)),
+      ),
+    );
+
+    expect(find.text('Notes'), findsOneWidget);
+    expect(find.text('Footnote text', findRichText: true), findsOneWidget);
+    expect(find.text('Comments'), findsOneWidget);
+    expect(find.text('FR 1.'), findsOneWidget);
+    expect(find.text('Comment text', findRichText: true), findsOneWidget);
   });
 }

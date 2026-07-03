@@ -7,3 +7,6 @@
 - Customizable texts and theming via `FilePreviewKitTexts` and `FilePreviewKitTheme`.
 - Error and loading states for previews.
 - Support for previewing from local file, bytes, or URL via `PreviewSource`.
+- Expanded DOCX parsing based on Mammoth semantics, including relationship-based
+  part discovery, inline links, bookmarks, checkboxes, notes, comments, text
+  boxes, tracked changes, richer styles, numbering, and legacy images.

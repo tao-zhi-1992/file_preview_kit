@@ -19,12 +19,14 @@ class FilePreviewView extends StatefulWidget {
   final PreviewSource source;
   final FilePreviewKitTexts? texts;
   final ThemeData? theme;
+  final ValueChanged<String>? onLinkTap;
 
   const FilePreviewView({
     super.key,
     required this.source,
     this.texts,
     this.theme,
+    this.onLinkTap,
   });
 
   @override
@@ -52,7 +54,8 @@ class _FilePreviewViewState extends State<FilePreviewView> {
 
     if (oldWidget.source != widget.source ||
         oldWidget.texts != widget.texts ||
-        oldWidget.theme != widget.theme) {
+        oldWidget.theme != widget.theme ||
+        oldWidget.onLinkTap != widget.onLinkTap) {
       final texts = _resolveTexts(context);
       _resolvedTexts = texts;
       _previewFuture = _buildPreview(texts, _resolveTheme());
@@ -111,7 +114,11 @@ class _FilePreviewViewState extends State<FilePreviewView> {
 
       case PreviewType.docx:
         final document = DocxParser().parseBytes(widget.source.bytes);
-        return DocxPreviewView(document: document, theme: theme);
+        return DocxPreviewView(
+          document: document,
+          theme: theme,
+          onLinkTap: widget.onLinkTap,
+        );
 
       case PreviewType.unsupported:
         return UnsupportedFileView(

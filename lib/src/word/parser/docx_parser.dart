@@ -118,7 +118,8 @@ class DocxParser {
 
     try {
       final archive = ZipDecoder().decodeBytes(bytes);
-      final documentXml = _readArchiveText(archive, 'word/document.xml');
+      final parts = _findPartPaths(archive);
+      final documentXml = _readArchiveText(archive, parts.document);
 
       if (documentXml == null) {
         throw const InvalidDocxException();
@@ -131,22 +132,35 @@ class DocxParser {
         throw const InvalidDocxException();
       }
 
+      final relationships = _parseRelationships(
+        _readArchiveText(archive, _relationshipsPath(parts.document)),
+      );
+      final contentTypes = _parseContentTypes(
+        _readArchiveText(archive, '[Content_Types].xml'),
+      );
+      final styles = _parseStyles(_readArchiveText(archive, parts.styles));
+      final numbering = _parseNumbering(
+        _readArchiveText(archive, parts.numbering),
+        styles,
+      );
       final state = _ParseState(
         archive: archive,
-        relationships: _parseRelationships(
-          _readArchiveText(archive, 'word/_rels/document.xml.rels'),
-        ),
-        contentTypes: _parseContentTypes(
-          _readArchiveText(archive, '[Content_Types].xml'),
-        ),
-        numbering: _parseNumbering(
-          _readArchiveText(archive, 'word/numbering.xml'),
-        ),
-        styles: _parseStyles(_readArchiveText(archive, 'word/styles.xml')),
+        partPath: parts.document,
+        relationships: relationships,
+        contentTypes: contentTypes,
+        numbering: numbering,
+        styles: styles,
         numberingCounters: <int, Map<int, int>>{},
       );
 
-      return DocxDocument(blocks: _parseBlocks(body, state));
+      return DocxDocument(
+        blocks: _parseBlocks(body, state),
+        notes: [
+          ..._parseNotes(parts.footnotes, DocxNoteType.footnote, state),
+          ..._parseNotes(parts.endnotes, DocxNoteType.endnote, state),
+        ],
+        comments: _parseComments(parts.comments, state),
+      );
     } on PreviewException {
       rethrow;
     } catch (_) {
@@ -160,11 +174,41 @@ class DocxParser {
 
   List<DocxBlock> _parseBlocks(XmlElement parent, _ParseState state) {
     final blocks = <DocxBlock>[];
+    final deletedParagraphRuns = <DocxTextRun>[];
+    final deletedParagraphBlocks = <DocxBlock>[];
 
     for (final child in parent.childElements) {
       switch (child.name.local) {
         case 'p':
-          blocks.addAll(_parseParagraph(child, state));
+          final parsed = _parseParagraph(child, state);
+          final paragraphProperties = _directChild(child, 'pPr');
+          final deleted =
+              _directChild(_directChild(paragraphProperties, 'rPr'), 'del') !=
+              null;
+          if (deleted) {
+            for (final block in parsed) {
+              if (block is DocxParagraph) {
+                deletedParagraphRuns.addAll(block.runs);
+              } else {
+                deletedParagraphBlocks.add(block);
+              }
+            }
+            break;
+          }
+          if (deletedParagraphRuns.isNotEmpty &&
+              parsed.isNotEmpty &&
+              parsed.first is DocxParagraph) {
+            final first = parsed.first as DocxParagraph;
+            parsed[0] = DocxParagraph(
+              runs: [...deletedParagraphRuns, ...first.runs],
+              style: first.style,
+              list: first.list,
+            );
+            deletedParagraphRuns.clear();
+          }
+          blocks.addAll(deletedParagraphBlocks);
+          deletedParagraphBlocks.clear();
+          blocks.addAll(parsed);
         case 'tbl':
           blocks.add(_parseTable(child, state));
         case 'bookmarkStart':
@@ -194,7 +238,9 @@ class DocxParser {
 
     // Resolve the effective style from styles.xml if available.
     final resolvedStyle = state.styles.resolveParagraphStyle(styleId);
-    final kind = _parseBuiltinKind(resolvedStyle?.styleId ?? styleId);
+    final kind = _parseBuiltinKind(
+      resolvedStyle?.name ?? resolvedStyle?.styleId ?? styleId,
+    );
 
     final justification = paragraphProperties == null
         ? null
@@ -202,23 +248,75 @@ class DocxParser {
     final spacing = paragraphProperties == null
         ? null
         : _directChild(paragraphProperties, 'spacing');
+    final indent = paragraphProperties == null
+        ? null
+        : _directChild(paragraphProperties, 'ind');
+    final inheritedProperties = resolvedStyle?.pPr;
+    final inheritedSpacing = inheritedProperties == null
+        ? null
+        : _directChild(inheritedProperties, 'spacing');
+    final inheritedIndent = inheritedProperties == null
+        ? null
+        : _directChild(inheritedProperties, 'ind');
     final alignment = _parseAlignment(_attribute(justification, 'val'));
-    final spacingBefore = _twipsToPixels(_attribute(spacing, 'before'));
-    final spacingAfter = _twipsToPixels(_attribute(spacing, 'after'));
-    final lineHeight = _lineHeight(_attribute(spacing, 'line'));
+    final spacingBefore = _twipsToPixels(
+      _attribute(spacing, 'before') ?? _attribute(inheritedSpacing, 'before'),
+    );
+    final spacingAfter = _twipsToPixels(
+      _attribute(spacing, 'after') ?? _attribute(inheritedSpacing, 'after'),
+    );
+    final lineHeight = _lineHeight(
+      _attribute(spacing, 'line') ?? _attribute(inheritedSpacing, 'line'),
+    );
 
     final paragraphStyle = DocxParagraphStyle(
       styleId: resolvedStyle?.styleId ?? styleId,
+      styleName: resolvedStyle?.name,
       kind: kind,
-      align: alignment,
+      align:
+          alignment ??
+          _parseAlignment(
+            _attribute(
+              inheritedProperties == null
+                  ? null
+                  : _directChild(inheritedProperties, 'jc'),
+              'val',
+            ),
+          ),
       spacingBefore: spacingBefore,
       spacingAfter: spacingAfter,
       lineHeight: lineHeight,
+      indentStart: _twipsToPixels(
+        _attribute(indent, 'start') ??
+            _attribute(indent, 'left') ??
+            _attribute(inheritedIndent, 'start') ??
+            _attribute(inheritedIndent, 'left'),
+      ),
+      indentEnd: _twipsToPixels(
+        _attribute(indent, 'end') ??
+            _attribute(indent, 'right') ??
+            _attribute(inheritedIndent, 'end') ??
+            _attribute(inheritedIndent, 'right'),
+      ),
+      firstLineIndent: _twipsToPixels(
+        _attribute(indent, 'firstLine') ??
+            _attribute(inheritedIndent, 'firstLine'),
+      ),
+      hangingIndent: _twipsToPixels(
+        _attribute(indent, 'hanging') ?? _attribute(inheritedIndent, 'hanging'),
+      ),
     );
 
-    var list = _parseList(paragraphProperties, state);
+    var list = _parseList(
+      paragraphProperties,
+      state,
+      styleId: resolvedStyle?.styleId ?? styleId,
+      inheritedProperties: resolvedStyle?.pPr,
+    );
     final blocks = <DocxBlock>[];
+    final extraBlocks = <DocxBlock>[];
     final runs = <DocxTextRun>[];
+    final fields = _ComplexFieldState();
 
     void addParagraph({bool evenWhenEmpty = false}) {
       if (runs.isEmpty && !evenWhenEmpty) {
@@ -250,20 +348,64 @@ class DocxParser {
             addParagraph,
             addBlock,
             list != null && runs.isEmpty && blocks.isEmpty,
+            paragraphRunProperties: resolvedStyle?.rPr,
+            fields: fields,
+            extraBlocks: extraBlocks,
           );
           break;
         case 'hyperlink':
-          _parseHyperlink(child, state, runs, blocks, paragraphStyle, list,
-              addParagraph, addBlock);
+          _parseHyperlink(
+            child,
+            state,
+            runs,
+            paragraphRunProperties: resolvedStyle?.rPr,
+          );
           break;
         case 'bookmarkStart':
-          // No visible content in preview
+          final name = _attribute(child, 'name');
+          if (name != null && name != '_GoBack') {
+            runs.add(DocxTextRun(text: '', anchor: name));
+          }
           break;
         case 'pPr':
           // Already handled above
           break;
         case 'rPr':
           // Paragraph-level run properties (e.g., w:del) — ignored
+          break;
+        case 'del':
+          break;
+        case 'sdt':
+          final checkbox = child.descendants
+              .whereType<XmlElement>()
+              .where((element) => element.name.local == 'checkbox')
+              .firstOrNull;
+          if (checkbox != null) {
+            final checked = _onOff(checkbox, 'checked') ?? false;
+            final content =
+                _firstDescendant(child, 'sdtContent')?.innerText ?? '';
+            runs.add(
+              DocxTextRun(
+                text:
+                    '${checked ? '☑' : '☐'}${content.isEmpty ? '' : content.substring(1)}',
+              ),
+            );
+            break;
+          }
+          for (final inner in _wordRuns(child)) {
+            _parseRun(
+              inner,
+              state,
+              runs,
+              blocks,
+              addParagraph,
+              addBlock,
+              list != null && runs.isEmpty && blocks.isEmpty,
+              paragraphRunProperties: resolvedStyle?.rPr,
+              fields: fields,
+              extraBlocks: extraBlocks,
+            );
+          }
           break;
         default:
           // Recursively look for runs inside unknown containers (e.g. w:ins)
@@ -276,6 +418,9 @@ class DocxParser {
               addParagraph,
               addBlock,
               list != null && runs.isEmpty && blocks.isEmpty,
+              paragraphRunProperties: resolvedStyle?.rPr,
+              fields: fields,
+              extraBlocks: extraBlocks,
             );
           }
           break;
@@ -283,6 +428,7 @@ class DocxParser {
     }
 
     addParagraph(evenWhenEmpty: blocks.isEmpty);
+    blocks.addAll(extraBlocks);
     return blocks;
   }
 
@@ -293,10 +439,21 @@ class DocxParser {
     List<DocxBlock> blocks,
     void Function({bool evenWhenEmpty}) addParagraph,
     void Function(DocxBlock) addBlock,
-    bool hasList,
-  ) {
+    bool hasList, {
+    XmlElement? paragraphRunProperties,
+    _ComplexFieldState? fields,
+    List<DocxBlock>? extraBlocks,
+  }) {
     final properties = _directChild(run, 'rPr');
-    final textStyle = _readRunStyle(properties, state.styles);
+    final textStyle = _readRunStyle(
+      properties,
+      state.styles,
+      inheritedProperties: paragraphRunProperties,
+    );
+    final styleId = properties == null
+        ? null
+        : _attribute(_directChild(properties, 'rStyle'), 'val');
+    final characterStyle = state.styles.findCharacterStyle(styleId);
     final text = StringBuffer();
 
     void addTextRun() {
@@ -304,7 +461,16 @@ class DocxParser {
         return;
       }
 
-      runs.add(DocxTextRun(text: text.toString(), style: textStyle));
+      runs.add(
+        DocxTextRun(
+          text: text.toString(),
+          style: textStyle,
+          styleId: styleId,
+          styleName: characterStyle?.name,
+          href: fields?.href,
+          anchor: fields?.anchor,
+        ),
+      );
       text.clear();
     }
 
@@ -331,18 +497,68 @@ class DocxParser {
           text.write('\u00AD');
         case 'sym':
           text.write(_parseSymbol(child));
-        case 'drawing':
+        case 'fldChar':
           addTextRun();
-
-          // Only emit an empty paragraph when there is a pending list, so
-          // that list numbering resumes after the image.
-          if (hasList) {
-            addParagraph(evenWhenEmpty: true);
-          } else {
-            addParagraph();
+          final marker = fields?.handleFieldCharacter(child);
+          if (marker != null) {
+            runs.add(DocxTextRun(text: marker));
           }
-
-          blocks.addAll(_parseImages(child, state));
+        case 'instrText':
+          fields?.addInstruction(child.innerText);
+        case 'footnoteReference':
+          addTextRun();
+          final id = _attribute(child, 'id') ?? '';
+          runs.add(
+            DocxTextRun(
+              text: '[${state.nextNoteNumber(DocxNoteType.footnote, id)}]',
+              style: const DocxTextStyle(
+                verticalAlignment: DocxVerticalAlignment.superscript,
+              ),
+              anchor: 'footnote-$id',
+            ),
+          );
+        case 'endnoteReference':
+          addTextRun();
+          final id = _attribute(child, 'id') ?? '';
+          runs.add(
+            DocxTextRun(
+              text: '[${state.nextNoteNumber(DocxNoteType.endnote, id)}]',
+              style: const DocxTextStyle(
+                verticalAlignment: DocxVerticalAlignment.superscript,
+              ),
+              anchor: 'endnote-$id',
+            ),
+          );
+        case 'commentReference':
+          addTextRun();
+          final id = _attribute(child, 'id') ?? '';
+          runs.add(
+            DocxTextRun(
+              text: '[${state.nextCommentNumber(id)}]',
+              style: const DocxTextStyle(
+                verticalAlignment: DocxVerticalAlignment.superscript,
+              ),
+              anchor: 'comment-$id',
+            ),
+          );
+        case 'drawing' || 'pict':
+          addTextRun();
+          final images = _parseImages(child, state);
+          if (images.isNotEmpty) {
+            // Only emit an empty paragraph when there is a pending list, so
+            // that list numbering resumes after the image.
+            if (hasList) {
+              addParagraph(evenWhenEmpty: true);
+            } else {
+              addParagraph();
+            }
+            blocks.addAll(images);
+          }
+          for (final textBox in child.descendants.whereType<XmlElement>().where(
+            (element) => element.name.local == 'txbxContent',
+          )) {
+            (extraBlocks ?? blocks).addAll(_parseBlocks(textBox, state));
+          }
       }
     }
 
@@ -352,32 +568,32 @@ class DocxParser {
   void _parseHyperlink(
     XmlElement element,
     _ParseState state,
-    List<DocxTextRun> runs,
-    List<DocxBlock> blocks,
-    DocxParagraphStyle paragraphStyle,
-    DocxListInfo? list,
-    void Function({bool evenWhenEmpty}) addParagraph,
-    void Function(DocxBlock) addBlock,
-  ) {
+    List<DocxTextRun> runs, {
+    XmlElement? paragraphRunProperties,
+  }) {
     final relationshipId = _attribute(element, 'id');
     final anchor = _attribute(element, 'anchor');
     String? href;
 
-    if (relationshipId != null) {
-      final relationship = state.relationships[relationshipId];
-      if (relationship != null && !relationship.external) {
-        href = relationship.target;
-      } else if (relationship != null) {
-        href = relationship.target;
+    final relationship = state.relationships[relationshipId];
+    if (relationship != null) {
+      href = relationship.target;
+      if (anchor != null) {
+        href = Uri.parse(href).replace(fragment: anchor).toString();
       }
     }
-
-    final hyperlinkRuns = <DocxTextRun>[];
 
     for (final child in element.childElements) {
       if (child.name.local == 'r') {
         final properties = _directChild(child, 'rPr');
-        final textStyle = _readRunStyle(properties, state.styles);
+        final textStyle = _readRunStyle(
+          properties,
+          state.styles,
+          inheritedProperties: paragraphRunProperties,
+        );
+        final styleId = properties == null
+            ? null
+            : _attribute(_directChild(properties, 'rStyle'), 'val');
         final text = StringBuffer();
 
         for (final inner in child.childElements) {
@@ -397,66 +613,109 @@ class DocxParser {
         }
 
         if (text.isNotEmpty) {
-          hyperlinkRuns.add(
-            DocxTextRun(text: text.toString(), style: textStyle),
+          runs.add(
+            DocxTextRun(
+              text: text.toString(),
+              style: textStyle,
+              styleId: styleId,
+              styleName: state.styles.findCharacterStyle(styleId)?.name,
+              href: href,
+              anchor: href == null ? anchor : null,
+            ),
           );
         }
       }
-    }
-
-    if (hyperlinkRuns.isNotEmpty) {
-      // If there were preceding runs in the paragraph, emit them first.
-      if (runs.isNotEmpty) {
-        addParagraph();
-      }
-      blocks.add(DocxHyperlink(href: href, anchor: anchor, runs: hyperlinkRuns));
     }
   }
 
   DocxTextStyle _readRunStyle(
     XmlElement? properties,
-    _DocxStyles styles,
-  ) {
-    if (properties == null) {
-      return const DocxTextStyle();
-    }
-
+    _DocxStyles styles, {
+    XmlElement? inheritedProperties,
+  }) {
     // Resolve character style if present.
-    final styleId = _attribute(_directChild(properties, 'rStyle'), 'val');
-    final charStyle = styleId != null ? styles.findCharacterStyle(styleId) : null;
+    final styleId = properties == null
+        ? null
+        : _attribute(_directChild(properties, 'rStyle'), 'val');
+    final charStyle = styleId != null
+        ? styles.findCharacterStyle(styleId)
+        : null;
 
     return DocxTextStyle(
-      bold: _isEnabled(properties, 'b') || (charStyle?.bold ?? false),
-      italic: _isEnabled(properties, 'i') || (charStyle?.italic ?? false),
-      underline: _isUnderline(properties) || (charStyle?.underline ?? false),
-      strike: _isEnabled(properties, 'strike') || (charStyle?.strike ?? false),
-      allCaps: _isEnabled(properties, 'caps') || (charStyle?.allCaps ?? false),
+      bold:
+          _onOff(properties, 'b') ??
+          charStyle?.bold ??
+          _onOff(inheritedProperties, 'b') ??
+          false,
+      italic:
+          _onOff(properties, 'i') ??
+          charStyle?.italic ??
+          _onOff(inheritedProperties, 'i') ??
+          false,
+      underline:
+          _underline(properties) ??
+          charStyle?.underline ??
+          _underline(inheritedProperties) ??
+          false,
+      strike:
+          _onOff(properties, 'strike') ??
+          charStyle?.strike ??
+          _onOff(inheritedProperties, 'strike') ??
+          false,
+      allCaps:
+          _onOff(properties, 'caps') ??
+          charStyle?.allCaps ??
+          _onOff(inheritedProperties, 'caps') ??
+          false,
       smallCaps:
-          _isEnabled(properties, 'smallCaps') || (charStyle?.smallCaps ?? false),
-      fontSize: _halfPoints(
+          _onOff(properties, 'smallCaps') ??
+          charStyle?.smallCaps ??
+          _onOff(inheritedProperties, 'smallCaps') ??
+          false,
+      fontSize:
+          _halfPoints(_attribute(_directChild(properties, 'sz'), 'val')) ??
+          charStyle?.fontSize ??
+          _halfPoints(
             _attribute(
-              _directChild(properties, 'sz'),
+              inheritedProperties == null
+                  ? null
+                  : _directChild(inheritedProperties, 'sz'),
               'val',
             ),
-          ) ??
-          charStyle?.fontSize,
-      color: _hexColor(
+          ),
+      color:
+          _hexColor(_attribute(_directChild(properties, 'color'), 'val')) ??
+          charStyle?.color ??
+          _hexColor(
             _attribute(
-              _directChild(properties, 'color'),
+              inheritedProperties == null
+                  ? null
+                  : _directChild(inheritedProperties, 'color'),
               'val',
             ),
+          ),
+      highlightColor:
+          _highlightColor(
+            _attribute(_directChild(properties, 'highlight'), 'val'),
           ) ??
-          charStyle?.color,
-      highlightColor: _highlightColor(
+          charStyle?.highlightColor ??
+          _highlightColor(
             _attribute(
-              _directChild(properties, 'highlight'),
+              inheritedProperties == null
+                  ? null
+                  : _directChild(inheritedProperties, 'highlight'),
               'val',
             ),
-          ) ??
-          charStyle?.highlightColor,
+          ),
       fontFamily:
           _attribute(_directChild(properties, 'rFonts'), 'ascii') ??
-              charStyle?.fontFamily,
+          charStyle?.fontFamily ??
+          _attribute(
+            inheritedProperties == null
+                ? null
+                : _directChild(inheritedProperties, 'rFonts'),
+            'ascii',
+          ),
       verticalAlignment: _parseVerticalAlignment(
         _attribute(_directChild(properties, 'vertAlign'), 'val'),
       ),
@@ -471,19 +730,34 @@ class DocxParser {
     final extent = _firstDescendant(drawing, 'extent');
     final width = _emuToPixels(_attribute(extent, 'cx'));
     final height = _emuToPixels(_attribute(extent, 'cy'));
+    final properties = drawing.descendants
+        .whereType<XmlElement>()
+        .where((element) => element.name.local == 'docPr')
+        .firstOrNull;
+    final altText =
+        _blankToNull(_attribute(properties, 'descr')) ??
+        _blankToNull(_attribute(properties, 'title'));
+    final imageLinkId = properties?.descendants
+        .whereType<XmlElement>()
+        .where((element) => element.name.local == 'hlinkClick')
+        .map((element) => _attribute(element, 'id'))
+        .firstOrNull;
+    final href = state.relationships[imageLinkId]?.target;
     final images = <DocxImage>[];
 
     for (final element in drawing.descendants.whereType<XmlElement>()) {
-      if (element.name.local != 'blip') {
+      if (element.name.local != 'blip' && element.name.local != 'imagedata') {
         continue;
       }
 
       final relationshipId =
-          _attribute(element, 'embed') ?? _attribute(element, 'link');
+          _attribute(element, 'embed') ??
+          _attribute(element, 'link') ??
+          _attribute(element, 'id');
       final relationship = state.relationships[relationshipId];
       final path = relationship == null || relationship.external
           ? null
-          : _resolveWordPath(relationship.target);
+          : _resolvePartPath(state.partPath, relationship.target);
       final bytes = path == null
           ? null
           : _readArchiveBytes(state.archive, path);
@@ -496,17 +770,8 @@ class DocxParser {
               : state.contentTypes.typeFor(path),
           width: width,
           height: height,
-        ),
-      );
-    }
-
-    if (images.isEmpty) {
-      images.add(
-        DocxImage(
-          bytes: Uint8List(0),
-          contentType: 'application/octet-stream',
-          width: width,
-          height: height,
+          altText: altText ?? _blankToNull(_attribute(element, 'title')),
+          href: href,
         ),
       );
     }
@@ -520,37 +785,52 @@ class DocxParser {
 
   DocxListInfo? _parseList(
     XmlElement? paragraphProperties,
-    _ParseState state,
-  ) {
-    if (paragraphProperties == null) {
-      return null;
-    }
-
-    final numberingProperties = _directChild(paragraphProperties, 'numPr');
-
-    if (numberingProperties == null) {
-      return null;
-    }
+    _ParseState state, {
+    String? styleId,
+    XmlElement? inheritedProperties,
+  }) {
+    final numberingProperties =
+        _directChild(paragraphProperties, 'numPr') ??
+        _directChild(inheritedProperties, 'numPr');
 
     final level =
         int.tryParse(
           _attribute(_directChild(numberingProperties, 'ilvl'), 'val') ?? '',
         ) ??
         0;
-    final numberId = int.tryParse(
+    var numberId = int.tryParse(
       _attribute(_directChild(numberingProperties, 'numId'), 'val') ?? '',
     );
-    final definition = numberId == null
+    var definition = numberId == null
         ? null
         : state.numbering[numberId]?[level];
+    if (definition == null && styleId != null) {
+      for (final entry in state.numbering.entries) {
+        for (final candidate in entry.value.values) {
+          if (candidate.paragraphStyleId == styleId) {
+            numberId = entry.key;
+            definition = candidate;
+            break;
+          }
+        }
+        if (definition != null) {
+          break;
+        }
+      }
+    }
+    if (numberingProperties == null && definition == null) {
+      return null;
+    }
     final type = definition?.type ?? DocxListType.bullet;
 
     if (type == DocxListType.bullet || numberId == null) {
       return DocxListInfo(type: type, level: level);
     }
 
-    final counters =
-        state.numberingCounters.putIfAbsent(numberId, () => <int, int>{});
+    final counters = state.numberingCounters.putIfAbsent(
+      numberId,
+      () => <int, int>{},
+    );
     counters.removeWhere((counterLevel, _) => counterLevel > level);
     final number = (counters[level] ?? (definition?.start ?? 1) - 1) + 1;
     counters[level] = number;
@@ -564,6 +844,10 @@ class DocxParser {
 
   DocxTable _parseTable(XmlElement table, _ParseState state) {
     final tableProperties = _directChild(table, 'tblPr');
+    final styleId = _attribute(
+      _directChild(tableProperties, 'tblStyle'),
+      'val',
+    );
     final borders = tableProperties == null
         ? null
         : _directChild(tableProperties, 'tblBorders');
@@ -584,28 +868,17 @@ class DocxParser {
 
     for (final row in table.childElements.where((e) => e.name.local == 'tr')) {
       final rowProperties = _directChild(row, 'trPr');
-      final isHeader = rowProperties != null &&
+      if (_directChild(rowProperties, 'del') != null) {
+        continue;
+      }
+      final isHeader =
+          rowProperties != null &&
           _directChild(rowProperties, 'tblHeader') != null;
       final cells = <_CellBuilder>[];
       var columnCursor = 0;
+      final continuedColumns = <int>{};
 
-      // Skip columns that are currently covered by an active vertical merge.
-      while (activeVMerges.containsKey(columnCursor)) {
-        final mergeCell = activeVMerges[columnCursor]!;
-        // Increase rowSpan of the originating cell.
-        mergeCell._rowSpan++;
-        columnCursor += mergeCell.columnSpan;
-      }
-
-      for (final cell
-          in row.childElements.where((e) => e.name.local == 'tc')) {
-        // Advance cursor past any remaining vMerge gaps.
-        while (activeVMerges.containsKey(columnCursor)) {
-          final mergeCell = activeVMerges[columnCursor]!;
-          mergeCell._rowSpan++;
-          columnCursor += mergeCell.columnSpan;
-        }
-
+      for (final cell in row.childElements.where((e) => e.name.local == 'tc')) {
         final cellProperties = _directChild(cell, 'tcPr');
         final span =
             int.tryParse(
@@ -616,8 +889,8 @@ class DocxParser {
                     'val',
                   ) ??
                   '',
-                ) ??
-                1;
+            ) ??
+            1;
         final widthElement = cellProperties == null
             ? null
             : _directChild(cellProperties, 'tcW');
@@ -636,24 +909,35 @@ class DocxParser {
           // This cell is merged with the cell above. Skip it and extend the
           // active merge's rowSpan.
           final activeCell = activeVMerges[columnCursor];
-          if (activeCell != null) {
+          if (activeCell != null &&
+              activeCell.columnSpan == cellBuilder.columnSpan) {
             activeCell._rowSpan++;
+            for (
+              var c = columnCursor;
+              c < columnCursor + cellBuilder.columnSpan;
+              c++
+            ) {
+              continuedColumns.add(c);
+            }
           }
-          // Do NOT add cellBuilder to cells. Remove active vMerge tracking
-          // for this column range since the merge is now counted.
         } else if (vMerge == _VMerge.restart) {
           // Start a new vertical merge group.
-          for (var c = columnCursor;
-              c < columnCursor + cellBuilder.columnSpan;
-              c++) {
+          for (
+            var c = columnCursor;
+            c < columnCursor + cellBuilder.columnSpan;
+            c++
+          ) {
             activeVMerges[c] = cellBuilder;
+            continuedColumns.add(c);
           }
           cells.add(cellBuilder);
         } else {
           // No vertical merge – clear any stale tracking in this range.
-          for (var c = columnCursor;
-              c < columnCursor + cellBuilder.columnSpan;
-              c++) {
+          for (
+            var c = columnCursor;
+            c < columnCursor + cellBuilder.columnSpan;
+            c++
+          ) {
             activeVMerges.remove(c);
           }
           cells.add(cellBuilder);
@@ -661,6 +945,10 @@ class DocxParser {
 
         columnCursor += cellBuilder.columnSpan;
       }
+
+      activeVMerges.removeWhere(
+        (column, _) => !continuedColumns.contains(column),
+      );
 
       rows.add(_ParsedRow(cells: cells, isHeader: isHeader));
     }
@@ -681,6 +969,8 @@ class DocxParser {
             isHeader: r.isHeader,
           ),
       ],
+      styleId: styleId,
+      styleName: state.styles.tableStyles[styleId],
       columnWidths: columnWidths,
       hasBorders:
           borders != null &&
@@ -706,7 +996,7 @@ class DocxParser {
     }
 
     final val = _attribute(element, 'val');
-    if (val == 'continue') {
+    if (val == null || val == 'continue') {
       return _VMerge.continue_;
     }
     return _VMerge.restart;
@@ -717,9 +1007,23 @@ class DocxParser {
   // -----------------------------------------------------------------------
 
   Iterable<XmlElement> _wordRuns(XmlElement paragraph) sync* {
+    if (paragraph.name.local == 'AlternateContent') {
+      final fallback = _directChild(paragraph, 'Fallback');
+      if (fallback != null) {
+        yield* _wordRuns(fallback);
+      }
+      return;
+    }
     for (final child in paragraph.childElements) {
       if (child.name.local == 'r') {
         yield child;
+      } else if (child.name.local == 'del') {
+        continue;
+      } else if (child.name.local == 'AlternateContent') {
+        final fallback = _directChild(child, 'Fallback');
+        if (fallback != null) {
+          yield* _wordRuns(fallback);
+        }
       } else if (child.name.local != 'pPr' &&
           child.name.local != 'drawing' &&
           child.name.local != 'hyperlink') {
@@ -731,6 +1035,126 @@ class DocxParser {
   // -----------------------------------------------------------------------
   // Archive reading
   // -----------------------------------------------------------------------
+
+  _PartPaths _findPartPaths(Archive archive) {
+    final packageRelationships = _parseRelationships(
+      _readArchiveText(archive, '_rels/.rels'),
+    );
+    final relatedDocument = packageRelationships.values
+        .where((relationship) => relationship.type.endsWith('/officeDocument'))
+        .map((relationship) => _resolvePartPath('', relationship.target))
+        .where((path) => _readArchiveBytes(archive, path) != null)
+        .firstOrNull;
+    final document = relatedDocument ?? 'word/document.xml';
+    final relationships = _parseRelationships(
+      _readArchiveText(archive, _relationshipsPath(document)),
+    );
+
+    String related(String name) {
+      final target = relationships.values
+          .where((relationship) => relationship.type.endsWith('/$name'))
+          .map(
+            (relationship) => _resolvePartPath(document, relationship.target),
+          )
+          .where((path) => _readArchiveBytes(archive, path) != null)
+          .firstOrNull;
+      final slash = document.lastIndexOf('/');
+      final directory = slash < 0 ? '' : document.substring(0, slash + 1);
+      return target ?? '$directory$name.xml';
+    }
+
+    return _PartPaths(
+      document: document,
+      styles: related('styles'),
+      numbering: related('numbering'),
+      footnotes: related('footnotes'),
+      endnotes: related('endnotes'),
+      comments: related('comments'),
+    );
+  }
+
+  String _relationshipsPath(String partPath) {
+    final slash = partPath.lastIndexOf('/');
+    final directory = slash < 0 ? '' : partPath.substring(0, slash + 1);
+    final filename = slash < 0 ? partPath : partPath.substring(slash + 1);
+    return '${directory}_rels/$filename.rels';
+  }
+
+  String _resolvePartPath(String sourcePart, String target) {
+    final normalized = target.replaceAll('\\', '/');
+    if (normalized.startsWith('/')) {
+      return normalized.substring(1);
+    }
+    final base = sourcePart.isEmpty
+        ? Uri(path: '/')
+        : Uri(path: '/$sourcePart');
+    return base.resolve(normalized).path.substring(1);
+  }
+
+  List<DocxNote> _parseNotes(
+    String path,
+    DocxNoteType type,
+    _ParseState parentState,
+  ) {
+    final xml = _readArchiveText(parentState.archive, path);
+    if (xml == null) {
+      return const [];
+    }
+    final state = parentState.forPart(
+      path,
+      _parseRelationships(
+        _readArchiveText(parentState.archive, _relationshipsPath(path)),
+      ),
+    );
+    final elementName = type == DocxNoteType.footnote ? 'footnote' : 'endnote';
+
+    return [
+      for (final element
+          in XmlDocument.parse(xml).descendants.whereType<XmlElement>().where(
+            (element) => element.name.local == elementName,
+          ))
+        if (!{
+          'separator',
+          'continuationSeparator',
+        }.contains(_attribute(element, 'type')))
+          DocxNote(
+            id: _attribute(element, 'id') ?? '',
+            type: type,
+            blocks: _parseBlocks(element, state),
+          ),
+    ];
+  }
+
+  List<DocxComment> _parseComments(String path, _ParseState parentState) {
+    final xml = _readArchiveText(parentState.archive, path);
+    if (xml == null) {
+      return const [];
+    }
+    final state = parentState.forPart(
+      path,
+      _parseRelationships(
+        _readArchiveText(parentState.archive, _relationshipsPath(path)),
+      ),
+    );
+
+    return [
+      for (final element
+          in XmlDocument.parse(xml).descendants.whereType<XmlElement>().where(
+            (element) => element.name.local == 'comment',
+          ))
+        DocxComment(
+          id: _attribute(element, 'id') ?? '',
+          authorName: _blankToNull(_attribute(element, 'author')),
+          authorInitials: _blankToNull(_attribute(element, 'initials')),
+          blocks: _parseBlocks(element, state),
+        ),
+    ];
+  }
+
+  String? _blankToNull(String? value) {
+    final trimmed = value?.trim();
+    return trimmed == null || trimmed.isEmpty ? null : trimmed;
+  }
 
   String? _readArchiveText(Archive archive, String path) {
     final bytes = _readArchiveBytes(archive, path);
@@ -761,7 +1185,10 @@ class DocxParser {
     return null;
   }
 
-  XmlElement? _directChild(XmlElement parent, String localName) {
+  XmlElement? _directChild(XmlElement? parent, String localName) {
+    if (parent == null) {
+      return null;
+    }
     for (final child in parent.childElements) {
       if (child.name.local == localName) {
         return child;
@@ -790,16 +1217,18 @@ class DocxParser {
   // -----------------------------------------------------------------------
 
   bool _isEnabled(XmlElement? properties, String localName) {
-    if (properties == null) {
-      return false;
-    }
+    return _onOff(properties, localName) ?? false;
+  }
 
+  bool _isUnderline(XmlElement? properties) {
+    return _underline(properties) ?? false;
+  }
+
+  bool? _onOff(XmlElement? properties, String localName) {
     final property = _directChild(properties, localName);
-
     if (property == null) {
-      return false;
+      return null;
     }
-
     final value = _attribute(property, 'val')?.toLowerCase();
     return value != '0' &&
         value != 'false' &&
@@ -807,21 +1236,13 @@ class DocxParser {
         value != 'none';
   }
 
-  bool _isUnderline(XmlElement? properties) {
-    if (properties == null) {
-      return false;
-    }
-
+  bool? _underline(XmlElement? properties) {
     final property = _directChild(properties, 'u');
     if (property == null) {
-      return false;
+      return null;
     }
-
-    final value = _attribute(property, 'val');
-    return value != null &&
-        value != 'none' &&
-        value != 'false' &&
-        value != '0';
+    final value = _attribute(property, 'val')?.toLowerCase();
+    return value != null && value != 'none' && value != 'false' && value != '0';
   }
 
   DocxParagraphAlignment? _parseAlignment(String? value) {
@@ -946,15 +1367,21 @@ class DocxParser {
   _DocxStyles _parseStyles(String? xmlText) {
     final paragraphStyleMap = <String, _DocxParagraphStyleDef>{};
     final characterStyleMap = <String, _DocxCharacterStyleDef>{};
+    final tableStyleMap = <String, String?>{};
+    final numberingStyleMap = <String, int?>{};
 
     if (xmlText == null) {
-      return _DocxStyles(paragraphStyleMap, characterStyleMap);
+      return _DocxStyles(
+        paragraphStyleMap,
+        characterStyleMap,
+        tableStyleMap,
+        numberingStyleMap,
+      );
     }
 
     final document = XmlDocument.parse(xmlText);
 
-    for (final styleElement
-        in document.descendants.whereType<XmlElement>()) {
+    for (final styleElement in document.descendants.whereType<XmlElement>()) {
       if (styleElement.name.local != 'style') {
         continue;
       }
@@ -970,7 +1397,9 @@ class DocxParser {
         final rPr = _directChild(styleElement, 'rPr');
         paragraphStyleMap[styleId] = _DocxParagraphStyleDef(
           styleId: styleId,
+          name: _attribute(_directChild(styleElement, 'name'), 'val'),
           basedOn: _attribute(_directChild(styleElement, 'basedOn'), 'val'),
+          pPr: pPr,
           rPr: rPr,
         );
       } else if (type == 'character') {
@@ -978,41 +1407,50 @@ class DocxParser {
         if (rPr != null) {
           characterStyleMap[styleId] = _DocxCharacterStyleDef(
             styleId: styleId,
-            basedOn:
-                _attribute(_directChild(styleElement, 'basedOn'), 'val'),
+            name: _attribute(_directChild(styleElement, 'name'), 'val'),
+            basedOn: _attribute(_directChild(styleElement, 'basedOn'), 'val'),
             bold: _isEnabled(rPr, 'b'),
             italic: _isEnabled(rPr, 'i'),
             underline: _isUnderline(rPr),
             strike: _isEnabled(rPr, 'strike'),
             allCaps: _isEnabled(rPr, 'caps'),
             smallCaps: _isEnabled(rPr, 'smallCaps'),
-            fontSize: _halfPoints(
-              _attribute(_directChild(rPr, 'sz'), 'val'),
-            ),
-            color: _hexColor(
-              _attribute(_directChild(rPr, 'color'), 'val'),
-            ),
+            fontSize: _halfPoints(_attribute(_directChild(rPr, 'sz'), 'val')),
+            color: _hexColor(_attribute(_directChild(rPr, 'color'), 'val')),
             highlightColor: _highlightColor(
               _attribute(_directChild(rPr, 'highlight'), 'val'),
             ),
-            fontFamily:
-                _attribute(_directChild(rPr, 'rFonts'), 'ascii'),
+            fontFamily: _attribute(_directChild(rPr, 'rFonts'), 'ascii'),
           );
         }
+      } else if (type == 'table') {
+        tableStyleMap.putIfAbsent(
+          styleId,
+          () => _attribute(_directChild(styleElement, 'name'), 'val'),
+        );
+      } else if (type == 'numbering') {
+        numberingStyleMap.putIfAbsent(
+          styleId,
+          () => int.tryParse(
+            _attribute(
+                  _directChild(
+                    _directChild(_directChild(styleElement, 'pPr'), 'numPr'),
+                    'numId',
+                  ),
+                  'val',
+                ) ??
+                '',
+          ),
+        );
       }
     }
 
-    return _DocxStyles(paragraphStyleMap, characterStyleMap);
-  }
-
-  String _resolveWordPath(String target) {
-    final normalized = target.replaceAll('\\', '/');
-
-    if (normalized.startsWith('/')) {
-      return normalized.substring(1);
-    }
-
-    return Uri.parse('word/document.xml').resolve(normalized).path;
+    return _DocxStyles(
+      paragraphStyleMap,
+      characterStyleMap,
+      tableStyleMap,
+      numberingStyleMap,
+    );
   }
 
   // -----------------------------------------------------------------------
@@ -1039,6 +1477,7 @@ class DocxParser {
       if (id != null && target != null) {
         relationships[id] = _Relationship(
           target: target,
+          type: _attribute(element, 'Type') ?? '',
           external: _attribute(element, 'TargetMode') == 'External',
         );
       }
@@ -1078,13 +1517,17 @@ class DocxParser {
     return _ContentTypes(defaults, overrides);
   }
 
-  Map<int, Map<int, _NumberingLevel>> _parseNumbering(String? xmlText) {
+  Map<int, Map<int, _NumberingLevel>> _parseNumbering(
+    String? xmlText,
+    _DocxStyles styles,
+  ) {
     if (xmlText == null) {
       return {};
     }
 
     final document = XmlDocument.parse(xmlText);
     final abstracts = <int, Map<int, _NumberingLevel>>{};
+    final abstractStyleLinks = <int, String>{};
 
     for (final abstract in document.descendants.whereType<XmlElement>()) {
       if (abstract.name.local != 'abstractNum') {
@@ -1102,27 +1545,37 @@ class DocxParser {
       for (final levelElement in abstract.childElements.where(
         (element) => element.name.local == 'lvl',
       )) {
-        final level =
-            int.tryParse(_attribute(levelElement, 'ilvl') ?? '') ?? 0;
-        final format =
-            _attribute(_directChild(levelElement, 'numFmt'), 'val');
+        final level = int.tryParse(_attribute(levelElement, 'ilvl') ?? '') ?? 0;
+        final format = _attribute(_directChild(levelElement, 'numFmt'), 'val');
         final start =
             int.tryParse(
               _attribute(_directChild(levelElement, 'start'), 'val') ?? '',
             ) ??
             1;
         levels[level] = _NumberingLevel(
-          type: format == 'decimal'
-              ? DocxListType.numbered
-              : DocxListType.bullet,
+          type: format == 'bullet'
+              ? DocxListType.bullet
+              : DocxListType.numbered,
           start: start,
+          paragraphStyleId: _attribute(
+            _directChild(levelElement, 'pStyle'),
+            'val',
+          ),
         );
       }
 
       abstracts[id] = levels;
+      final styleLink = _attribute(
+        _directChild(abstract, 'numStyleLink'),
+        'val',
+      );
+      if (styleLink != null) {
+        abstractStyleLinks[id] = styleLink;
+      }
     }
 
-    final numbering = <int, Map<int, _NumberingLevel>>{};
+    final numberToAbstract = <int, int>{};
+    final numberElements = <int, XmlElement>{};
 
     for (final element in document.descendants.whereType<XmlElement>()) {
       if (element.name.local != 'num') {
@@ -1135,8 +1588,50 @@ class DocxParser {
       );
 
       if (numberId != null && abstractId != null) {
-        numbering[numberId] = abstracts[abstractId] ?? {};
+        numberToAbstract[numberId] = abstractId;
+        numberElements[numberId] = element;
       }
+    }
+
+    final numbering = <int, Map<int, _NumberingLevel>>{};
+
+    Map<int, _NumberingLevel> resolve(int numberId, Set<int> visited) {
+      if (!visited.add(numberId)) {
+        return const {};
+      }
+      final abstractId = numberToAbstract[numberId];
+      if (abstractId == null) {
+        return const {};
+      }
+      final styleLink = abstractStyleLinks[abstractId];
+      final linkedNumberId = styleLink == null
+          ? null
+          : styles.numberingStyles[styleLink];
+      final resolved = Map<int, _NumberingLevel>.of(
+        linkedNumberId == null
+            ? abstracts[abstractId] ?? const {}
+            : resolve(linkedNumberId, visited),
+      );
+      for (final override in numberElements[numberId]!.childElements.where(
+        (element) => element.name.local == 'lvlOverride',
+      )) {
+        final level = int.tryParse(_attribute(override, 'ilvl') ?? '');
+        if (level == null) {
+          continue;
+        }
+        final start = int.tryParse(
+          _attribute(_directChild(override, 'startOverride'), 'val') ?? '',
+        );
+        final current = resolved[level];
+        if (start != null && current != null) {
+          resolved[level] = current.withStart(start);
+        }
+      }
+      return resolved;
+    }
+
+    for (final numberId in numberToAbstract.keys) {
+      numbering[numberId] = resolve(numberId, <int>{});
     }
 
     return numbering;
@@ -1149,27 +1644,187 @@ class DocxParser {
 
 class _ParseState {
   final Archive archive;
+  final String partPath;
   final Map<String, _Relationship> relationships;
   final _ContentTypes contentTypes;
   final Map<int, Map<int, _NumberingLevel>> numbering;
   final Map<int, Map<int, int>> numberingCounters;
   final _DocxStyles styles;
+  final Map<String, int> noteNumbers;
+  final Map<String, int> commentNumbers;
 
   _ParseState({
     required this.archive,
+    required this.partPath,
     required this.relationships,
     required this.contentTypes,
     required this.numbering,
     required this.numberingCounters,
     required this.styles,
-  });
+    Map<String, int>? noteNumbers,
+    Map<String, int>? commentNumbers,
+  }) : noteNumbers = noteNumbers ?? <String, int>{},
+       commentNumbers = commentNumbers ?? <String, int>{};
+
+  int nextNoteNumber(DocxNoteType type, String id) {
+    final key = '${type.name}:$id';
+    return noteNumbers.putIfAbsent(key, () => noteNumbers.length + 1);
+  }
+
+  int nextCommentNumber(String id) {
+    return commentNumbers.putIfAbsent(id, () => commentNumbers.length + 1);
+  }
+
+  _ParseState forPart(
+    String path,
+    Map<String, _Relationship> partRelationships,
+  ) {
+    return _ParseState(
+      archive: archive,
+      partPath: path,
+      relationships: partRelationships,
+      contentTypes: contentTypes,
+      numbering: numbering,
+      numberingCounters: <int, Map<int, int>>{},
+      styles: styles,
+      noteNumbers: noteNumbers,
+      commentNumbers: commentNumbers,
+    );
+  }
+}
+
+class _ComplexFieldState {
+  final List<_ComplexField> _fields = [];
+
+  String? get href => _activeHyperlink?.href;
+  String? get anchor => _activeHyperlink?.anchor;
+
+  _ComplexField? get _activeHyperlink {
+    for (final field in _fields.reversed) {
+      if (field.separated && (field.href != null || field.anchor != null)) {
+        return field;
+      }
+    }
+    return null;
+  }
+
+  void addInstruction(String value) {
+    if (_fields.isNotEmpty) {
+      _fields.last.instruction.write(value);
+    }
+  }
+
+  String? handleFieldCharacter(XmlElement element) {
+    switch (_attributeValue(element, 'fldCharType')) {
+      case 'begin':
+        final checkedElement = element.descendants
+            .whereType<XmlElement>()
+            .where((element) => element.name.local == 'checked')
+            .firstOrNull;
+        final defaultElement = element.descendants
+            .whereType<XmlElement>()
+            .where((element) => element.name.local == 'default')
+            .firstOrNull;
+        _fields.add(
+          _ComplexField(
+            checked:
+                _booleanValue(checkedElement) ??
+                _booleanValue(defaultElement) ??
+                false,
+          ),
+        );
+      case 'separate':
+        if (_fields.isNotEmpty) {
+          _fields.last.parse();
+        }
+      case 'end':
+        if (_fields.isEmpty) {
+          return null;
+        }
+        final field = _fields.removeLast();
+        return field.isCheckbox ? (field.checked ? '☑' : '☐') : null;
+    }
+    return null;
+  }
+
+  static String? _attributeValue(XmlElement element, String name) {
+    for (final attribute in element.attributes) {
+      if (attribute.name.local == name) {
+        return attribute.value;
+      }
+    }
+    return null;
+  }
+
+  static bool? _booleanValue(XmlElement? element) {
+    if (element == null) {
+      return null;
+    }
+    final value = _attributeValue(element, 'val')?.toLowerCase();
+    return value == null || !{'0', 'false', 'off'}.contains(value);
+  }
+}
+
+class _ComplexField {
+  final StringBuffer instruction = StringBuffer();
+  final bool checked;
+  bool separated = false;
+  bool isCheckbox = false;
+  String? href;
+  String? anchor;
+
+  _ComplexField({required this.checked});
+
+  void parse() {
+    separated = true;
+    final value = instruction.toString();
+    isCheckbox = RegExp(
+      r'\bFORMCHECKBOX\b',
+      caseSensitive: false,
+    ).hasMatch(value);
+    final match = RegExp(
+      r'''^\s*HYPERLINK\s+(\\l\s+)?(?:"([^"]*)"|([^\\\s]+))''',
+      caseSensitive: false,
+    ).firstMatch(value);
+    if (match == null) {
+      return;
+    }
+    if (match.group(1) != null) {
+      anchor = match.group(2) ?? match.group(3);
+    } else {
+      href = match.group(2) ?? match.group(3);
+    }
+  }
 }
 
 class _Relationship {
   final String target;
+  final String type;
   final bool external;
 
-  const _Relationship({required this.target, required this.external});
+  const _Relationship({
+    required this.target,
+    required this.type,
+    required this.external,
+  });
+}
+
+class _PartPaths {
+  final String document;
+  final String styles;
+  final String numbering;
+  final String footnotes;
+  final String endnotes;
+  final String comments;
+
+  const _PartPaths({
+    required this.document,
+    required this.styles,
+    required this.numbering,
+    required this.footnotes,
+    required this.endnotes,
+    required this.comments,
+  });
 }
 
 class _ContentTypes {
@@ -1203,8 +1858,21 @@ class _ContentTypes {
 class _NumberingLevel {
   final DocxListType type;
   final int start;
+  final String? paragraphStyleId;
 
-  const _NumberingLevel({required this.type, required this.start});
+  const _NumberingLevel({
+    required this.type,
+    required this.start,
+    this.paragraphStyleId,
+  });
+
+  _NumberingLevel withStart(int value) {
+    return _NumberingLevel(
+      type: type,
+      start: value,
+      paragraphStyleId: paragraphStyleId,
+    );
+  }
 }
 
 // =========================================================================
@@ -1214,8 +1882,15 @@ class _NumberingLevel {
 class _DocxStyles {
   final Map<String, _DocxParagraphStyleDef> paragraphStyles;
   final Map<String, _DocxCharacterStyleDef> characterStyles;
+  final Map<String, String?> tableStyles;
+  final Map<String, int?> numberingStyles;
 
-  const _DocxStyles(this.paragraphStyles, this.characterStyles);
+  const _DocxStyles(
+    this.paragraphStyles,
+    this.characterStyles,
+    this.tableStyles,
+    this.numberingStyles,
+  );
 
   _DocxParagraphStyleDef? resolveParagraphStyle(String? styleId) {
     if (styleId == null) {
@@ -1234,18 +1909,23 @@ class _DocxStyles {
 
 class _DocxParagraphStyleDef {
   final String styleId;
+  final String? name;
   final String? basedOn;
+  final XmlElement? pPr;
   final XmlElement? rPr;
 
   const _DocxParagraphStyleDef({
     required this.styleId,
+    this.name,
     this.basedOn,
+    this.pPr,
     this.rPr,
   });
 }
 
 class _DocxCharacterStyleDef {
   final String styleId;
+  final String? name;
   final String? basedOn;
   final bool bold;
   final bool italic;
@@ -1260,6 +1940,7 @@ class _DocxCharacterStyleDef {
 
   const _DocxCharacterStyleDef({
     required this.styleId,
+    this.name,
     this.basedOn,
     this.bold = false,
     this.italic = false,
@@ -1286,11 +1967,7 @@ class _CellBuilder {
   final double? width;
   int _rowSpan = 1;
 
-  _CellBuilder({
-    required this.blocks,
-    this.columnSpan = 1,
-    this.width,
-  });
+  _CellBuilder({required this.blocks, this.columnSpan = 1, this.width});
 }
 
 class _ParsedRow {
