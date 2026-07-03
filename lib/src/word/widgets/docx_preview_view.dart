@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/file_preview_kit_theme.dart';
@@ -34,11 +35,18 @@ class _DocxBlockView extends StatelessWidget {
   Widget build(BuildContext context) {
     return switch (block) {
       DocxParagraph paragraph => _DocxParagraphView(paragraph: paragraph),
+      DocxHyperlink hyperlink => _DocxHyperlinkView(hyperlink: hyperlink),
+      DocxBreak break_ => _DocxBreakView(breakType: break_.breakType),
       DocxTable table => _DocxTableView(table: table),
       DocxImage image => _DocxImageView(image: image),
+      DocxBookmarkStart _ => const SizedBox.shrink(),
     };
   }
 }
+
+// ---------------------------------------------------------------------------
+// Paragraph
+// ---------------------------------------------------------------------------
 
 class _DocxParagraphView extends StatelessWidget {
   final DocxParagraph paragraph;
@@ -85,20 +93,7 @@ class _DocxParagraphView extends StatelessWidget {
                     : '${list.number ?? 1}. ',
               ),
             for (final run in paragraph.runs)
-              TextSpan(
-                text: run.text,
-                style: TextStyle(
-                  fontWeight: run.style.bold ? FontWeight.bold : null,
-                  fontStyle: run.style.italic ? FontStyle.italic : null,
-                  decoration: _decoration(run.style),
-                  fontSize: run.style.fontSize,
-                  color:
-                      run.style.color == null ? null : Color(run.style.color!),
-                  backgroundColor: run.style.highlightColor == null
-                      ? null
-                      : Color(run.style.highlightColor!),
-                ),
-              ),
+              _textSpanForRun(run),
           ],
         ),
       ),
@@ -126,15 +121,113 @@ class _DocxParagraphView extends StatelessWidget {
   }
 
   String _bullet(int level) => const ['•', '◦', '▪'][level % 3];
+}
 
-  TextDecoration? _decoration(DocxTextStyle textStyle) {
-    final decorations = [
-      if (textStyle.underline) TextDecoration.underline,
-      if (textStyle.strike) TextDecoration.lineThrough,
-    ];
-    return decorations.isEmpty ? null : TextDecoration.combine(decorations);
+// ---------------------------------------------------------------------------
+// Hyperlink (standalone block)
+// ---------------------------------------------------------------------------
+
+class _DocxHyperlinkView extends StatelessWidget {
+  final DocxHyperlink hyperlink;
+
+  const _DocxHyperlinkView({required this.hyperlink});
+
+  @override
+  Widget build(BuildContext context) {
+    final baseStyle = DefaultTextStyle.of(context).style.copyWith(
+      fontSize: 16,
+      color: Colors.blue,
+      decoration: TextDecoration.underline,
+    );
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: RichText(
+        text: TextSpan(
+          style: baseStyle,
+          children: [
+            for (final run in hyperlink.runs) _textSpanForRun(run),
+          ],
+        ),
+      ),
+    );
   }
 }
+
+// ---------------------------------------------------------------------------
+// Break (page / column)
+// ---------------------------------------------------------------------------
+
+class _DocxBreakView extends StatelessWidget {
+  final DocxBreakType breakType;
+
+  const _DocxBreakView({required this.breakType});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.symmetric(
+        vertical: breakType == DocxBreakType.page ? 24 : 12,
+      ),
+      child: Divider(
+        height: 1,
+        color: Theme.of(context).dividerColor.withValues(alpha: 0.4),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Shared helpers (used by paragraph and hyperlink)
+// ---------------------------------------------------------------------------
+
+TextSpan _textSpanForRun(DocxTextRun run) {
+  return TextSpan(
+    text: _applyCaps(run.text, run.style),
+    style: TextStyle(
+      fontWeight: run.style.bold
+          ? FontWeight.bold
+          : run.style.allCaps || run.style.smallCaps
+              ? FontWeight.w500
+              : null,
+      fontStyle: run.style.italic ? FontStyle.italic : null,
+      decoration: _decoration(run.style),
+      fontSize: run.style.fontSize,
+      fontFamily: run.style.fontFamily,
+      color: run.style.color == null ? null : Color(run.style.color!),
+      backgroundColor: run.style.highlightColor == null
+          ? null
+          : Color(run.style.highlightColor!),
+      letterSpacing:
+          run.style.allCaps || run.style.smallCaps ? 1.2 : null,
+    ),
+    recognizer: (run.href != null || run.anchor != null)
+        ? (TapGestureRecognizer()..onTap = () {})
+        : null,
+  );
+}
+
+TextDecoration? _decoration(DocxTextStyle textStyle) {
+  final decorations = <TextDecoration>[
+    if (textStyle.underline) TextDecoration.underline,
+    if (textStyle.strike) TextDecoration.lineThrough,
+  ];
+  return decorations.isEmpty ? null : TextDecoration.combine(decorations);
+}
+
+String _applyCaps(String text, DocxTextStyle style) {
+  if (style.allCaps) {
+    return text.toUpperCase();
+  }
+  if (style.smallCaps) {
+    return text.toUpperCase();
+  }
+  return text;
+}
+
+// ---------------------------------------------------------------------------
+// Image
+// ---------------------------------------------------------------------------
 
 class _DocxImageView extends StatelessWidget {
   final DocxImage image;
@@ -156,8 +249,7 @@ class _DocxImageView extends StatelessWidget {
           final width = requestedWidth == null || !constraints.hasBoundedWidth
               ? requestedWidth
               : math.min(requestedWidth, constraints.maxWidth);
-          final height =
-              width == null ||
+          final height = width == null ||
                   requestedWidth == null ||
                   requestedWidth == 0 ||
                   image.height == null
@@ -195,6 +287,10 @@ class _DocxImageView extends StatelessWidget {
 }
 
 const _supportedContentTypes = {'image/png', 'image/jpeg'};
+
+// ---------------------------------------------------------------------------
+// Table
+// ---------------------------------------------------------------------------
 
 class _DocxTableView extends StatelessWidget {
   final DocxTable table;
@@ -237,12 +333,14 @@ class _DocxTableView extends StatelessWidget {
 
     for (var cellIndex = 0; cellIndex < row.cells.length; cellIndex++) {
       final cell = row.cells[cellIndex];
-      children.add(
-        Expanded(
-          flex: _cellFlex(cell, columnIndex),
-          child: _buildCell(context, cell, rowIndex, cellIndex),
-        ),
-      );
+      if (cell.rowSpan > 0) {
+        children.add(
+          Expanded(
+            flex: _cellFlex(cell, columnIndex),
+            child: _buildCell(context, cell, rowIndex, cellIndex, row.isHeader),
+          ),
+        );
+      }
       columnIndex += cell.columnSpan;
     }
 
@@ -255,6 +353,7 @@ class _DocxTableView extends StatelessWidget {
             const DocxTableCell(blocks: []),
             rowIndex,
             row.cells.length,
+            false,
           ),
         ),
       );
@@ -273,6 +372,7 @@ class _DocxTableView extends StatelessWidget {
     DocxTableCell cell,
     int rowIndex,
     int cellIndex,
+    bool isHeader,
   ) {
     return Container(
       key: ValueKey('docx-table-cell-$rowIndex-$cellIndex'),
@@ -282,6 +382,9 @@ class _DocxTableView extends StatelessWidget {
           color: Theme.of(context).dividerColor,
           width: table.hasBorders ? 1 : 0.5,
         ),
+        color: isHeader
+            ? Theme.of(context).colorScheme.surfaceContainerHighest
+            : null,
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,

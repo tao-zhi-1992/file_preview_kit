@@ -256,6 +256,189 @@ void main() {
     expect(image.contentType, 'application/octet-stream');
   });
 
+  test('parses hyperlink inside paragraph', () {
+    final document = parser.parseBytes(
+      _documentBytes(
+        '''
+<w:p><w:r><w:t>Visit </w:t></w:r><w:hyperlink r:id="rLink1"><w:r><w:rPr><w:rStyle w:val="Hyperlink"/><w:u w:val="single"/></w:rPr><w:t>Example</w:t></w:r></w:hyperlink><w:r><w:t> site</w:t></w:r></w:p>''',
+        relationships: '''<?xml version="1.0" encoding="UTF-8"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rLink1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink" Target="https://example.com"/></Relationships>''',
+      ),
+    );
+    // The hyperlink is emitted as a separate block between two paragraphs.
+    expect(document.blocks, hasLength(3));
+    expect(document.blocks[1], isA<DocxHyperlink>());
+    final hyperlink = document.blocks[1] as DocxHyperlink;
+    expect(hyperlink.href, 'https://example.com');
+    expect(hyperlink.anchor, isNull);
+    expect(hyperlink.runs.single.text, 'Example');
+    expect(
+      _paragraphText(document.blocks[0]),
+      'Visit ',
+    );
+    expect(_paragraphText(document.blocks[2]), ' site');
+  });
+
+  test('parses hyperlink with anchor (bookmark)', () {
+    final document = parser.parseBytes(
+      _documentBytes(
+        '<w:p><w:hyperlink w:anchor="_Toc123"><w:r><w:t>Jump to toc</w:t></w:r></w:hyperlink></w:p>',
+      ),
+    );
+    final hyperlink = document.blocks.single as DocxHyperlink;
+    expect(hyperlink.href, isNull);
+    expect(hyperlink.anchor, '_Toc123');
+    expect(hyperlink.runs.single.text, 'Jump to toc');
+  });
+
+  test('parses page break', () {
+    final document = parser.parseBytes(
+      _documentBytes(
+        '<w:p><w:r><w:t>Before</w:t></w:r></w:p><w:p><w:r><w:br w:type="page"/></w:r></w:p><w:p><w:r><w:t>After</w:t></w:r></w:p>',
+      ),
+    );
+    // The page-break paragraph produces a DocxBreak between two paragraphs.
+    expect(document.blocks, hasLength(3));
+    expect(document.blocks[1], isA<DocxBreak>());
+    expect(
+      (document.blocks[1] as DocxBreak).breakType,
+      DocxBreakType.page,
+    );
+  });
+
+  test('parses column break', () {
+    final document = parser.parseBytes(
+      _documentBytes(
+        '<w:p><w:r><w:br w:type="column"/><w:t>After column break</w:t></w:r></w:p>',
+      ),
+    );
+    // column-break block followed by paragraph
+    expect(document.blocks, hasLength(2));
+    expect(document.blocks[0], isA<DocxBreak>());
+    expect(
+      (document.blocks[0] as DocxBreak).breakType,
+      DocxBreakType.column,
+    );
+  });
+
+  test('parses no-break hyphen and soft hyphen', () {
+    final document = parser.parseBytes(
+      _documentBytes(
+        '<w:p><w:r><w:t>Non</w:t></w:r><w:r><w:noBreakHyphen /></w:r><w:r><w:t>breaking</w:t></w:r><w:r><w:softHyphen /></w:r><w:r><w:t>soft</w:t></w:r></w:p>',
+      ),
+    );
+    final paragraph = document.blocks.single as DocxParagraph;
+    expect(
+      paragraph.runs.map((r) => r.text).join(),
+      'Non\u2011breaking\u00ADsoft',
+    );
+  });
+
+  test('parses symbol character', () {
+    final document = parser.parseBytes(
+      _documentBytes(
+        '<w:p><w:r><w:sym w:font="Symbol" w:char="B0"/><w:t> symbol</w:t></w:r></w:p>',
+      ),
+    );
+    final paragraph = document.blocks.single as DocxParagraph;
+    expect(paragraph.runs[0].text, '♠ symbol');
+  });
+
+  test('parses allCaps and smallCaps run properties', () {
+    final document = parser.parseBytes(
+      _documentBytes(
+        '<w:p><w:r><w:rPr><w:caps/><w:rFonts w:ascii="Arial"/></w:rPr><w:t>UPPER</w:t></w:r><w:r><w:rPr><w:smallCaps/></w:rPr><w:t>small</w:t></w:r></w:p>',
+      ),
+    );
+    final paragraph = document.blocks.single as DocxParagraph;
+    expect(paragraph.runs[0].style.allCaps, isTrue);
+    expect(paragraph.runs[0].style.fontFamily, 'Arial');
+    expect(paragraph.runs[1].style.smallCaps, isTrue);
+  });
+
+  test('parses vertical alignment (superscript / subscript)', () {
+    final document = parser.parseBytes(
+      _documentBytes(
+        '<w:p><w:r><w:rPr><w:vertAlign w:val="superscript"/></w:rPr><w:t>sup</w:t></w:r><w:r><w:rPr><w:vertAlign w:val="subscript"/></w:rPr><w:t>sub</w:t></w:r></w:p>',
+      ),
+    );
+    final paragraph = document.blocks.single as DocxParagraph;
+    expect(paragraph.runs[0].style.verticalAlignment, DocxVerticalAlignment.superscript);
+    expect(paragraph.runs[1].style.verticalAlignment, DocxVerticalAlignment.subscript);
+  });
+
+  test('parses table row header flag', () {
+    final document = parser.parseBytes(
+      _documentBytes(
+        '<w:tbl><w:tblGrid><w:gridCol w:w="3000"/></w:tblGrid><w:tr><w:trPr><w:tblHeader/></w:trPr><w:tc><w:p><w:r><w:t>Header</w:t></w:r></w:p></w:tc></w:tr><w:tr><w:tc><w:p><w:r><w:t>Data</w:t></w:r></w:p></w:tc></w:tr></w:tbl>',
+      ),
+    );
+    final table = document.blocks.single as DocxTable;
+    expect(table.rows[0].isHeader, isTrue);
+    expect(table.rows[1].isHeader, isFalse);
+  });
+
+  test('parses table cell vertical merge', () {
+    final document = parser.parseBytes(
+      _documentBytes(
+        '<w:tbl><w:tblGrid><w:gridCol w:w="3000"/></w:tblGrid>'
+        '<w:tr><w:tc><w:tcPr><w:vMerge w:val="restart"/></w:tcPr><w:p><w:r><w:t>Merged</w:t></w:r></w:p></w:tc></w:tr>'
+        '<w:tr><w:tc><w:tcPr><w:vMerge w:val="continue"/></w:tcPr><w:p><w:r><w:t>Ignored</w:t></w:r></w:p></w:tc></w:tr>'
+        '<w:tr><w:tc><w:p><w:r><w:t>Alone</w:t></w:r></w:p></w:tc></w:tr>'
+        '</w:tbl>',
+      ),
+    );
+    final table = document.blocks.single as DocxTable;
+    // vMerge cells are skipped; only restart and standalone cells remain.
+    expect(table.rows[0].cells.single.rowSpan, greaterThan(1));
+    expect(table.rows[0].cells.single.blocks
+        .whereType<DocxParagraph>()
+        .expand((p) => p.runs)
+        .map((r) => r.text)
+        .join(),
+      'Merged',
+    );
+    // Second row's cell should be skipped (vMerge=continue).
+    expect(table.rows[1].cells, hasLength(0));
+    // Third row has a normal cell.
+    expect(
+      table.rows[2].cells.single.blocks
+          .whereType<DocxParagraph>()
+          .single
+          .runs
+          .single
+          .text,
+      'Alone',
+    );
+  });
+
+  test('parses styles.xml for paragraph and character style resolution', () {
+    final document = parser.parseBytes(
+      _documentBytes(
+        '<w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr><w:r><w:rPr><w:rStyle w:val="Strong"/></w:rPr><w:t>Title</w:t></w:r></w:p>',
+        stylesXml: '''<?xml version="1.0" encoding="UTF-8"?>
+<w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+<w:style w:type="paragraph" w:styleId="Heading1">
+<w:name w:val="heading 1"/>
+<w:rPr><w:b/><w:sz w:val="48"/></w:rPr>
+</w:style>
+<w:style w:type="character" w:styleId="Strong">
+<w:name w:val="Strong"/>
+<w:rPr><w:b/><w:i/><w:color w:val="CC0000"/></w:rPr>
+</w:style>
+</w:styles>''',
+      ),
+    );
+    final paragraph = document.blocks.single as DocxParagraph;
+    expect(paragraph.style.styleId, 'Heading1');
+    expect(paragraph.style.kind, DocxBuiltinKind.heading1);
+    // Character style properties should be inherited.
+    final run = paragraph.runs.single;
+    expect(run.style.bold, isTrue);
+    expect(run.style.italic, isTrue);
+    expect(run.style.color, 0xFFCC0000);
+  });
+
   test('keeps image metadata when the related media file is missing', () {
     final document = parser.parseBytes(
       _documentBytes(
@@ -287,7 +470,7 @@ String _paragraphText(DocxBlock block) {
   return (block as DocxParagraph).runs.map((run) => run.text).join();
 }
 
-Uint8List _documentBytes(String body, {String? relationships}) {
+Uint8List _documentBytes(String body, {String? relationships, String? stylesXml}) {
   final xml = utf8.encode(
     '''<?xml version="1.0" encoding="UTF-8"?>
 <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><w:body>$body</w:body></w:document>''',
@@ -299,6 +482,13 @@ Uint8List _documentBytes(String body, {String? relationships}) {
     final bytes = utf8.encode(relationships);
     archive.addFile(
       ArchiveFile('word/_rels/document.xml.rels', bytes.length, bytes),
+    );
+  }
+
+  if (stylesXml != null) {
+    final bytes = utf8.encode(stylesXml);
+    archive.addFile(
+      ArchiveFile('word/styles.xml', bytes.length, bytes),
     );
   }
 

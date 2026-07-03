@@ -14,23 +14,33 @@ sealed class DocxBlock {
 // Text style
 // ---------------------------------------------------------------------------
 
+enum DocxVerticalAlignment { baseline, superscript, subscript }
+
 class DocxTextStyle {
   final bool bold;
   final bool italic;
   final bool underline;
   final bool strike;
+  final bool allCaps;
+  final bool smallCaps;
   final double? fontSize;
   final int? color;
   final int? highlightColor;
+  final String? fontFamily;
+  final DocxVerticalAlignment? verticalAlignment;
 
   const DocxTextStyle({
     this.bold = false,
     this.italic = false,
     this.underline = false,
     this.strike = false,
+    this.allCaps = false,
+    this.smallCaps = false,
     this.fontSize,
     this.color,
     this.highlightColor,
+    this.fontFamily,
+    this.verticalAlignment,
   });
 }
 
@@ -85,11 +95,53 @@ class DocxParagraph extends DocxBlock {
 class DocxTextRun {
   final String text;
   final DocxTextStyle style;
+  final String? href;
+  final String? anchor;
 
   const DocxTextRun({
     required this.text,
     this.style = const DocxTextStyle(),
+    this.href,
+    this.anchor,
   });
+}
+
+// ---------------------------------------------------------------------------
+// Hyperlink block (standalone, for block-level hyperlinks)
+// ---------------------------------------------------------------------------
+
+class DocxHyperlink extends DocxBlock {
+  final String? href;
+  final String? anchor;
+  final List<DocxTextRun> runs;
+
+  const DocxHyperlink({
+    this.href,
+    this.anchor,
+    required this.runs,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Break block
+// ---------------------------------------------------------------------------
+
+enum DocxBreakType { page, column }
+
+class DocxBreak extends DocxBlock {
+  final DocxBreakType breakType;
+
+  const DocxBreak({required this.breakType});
+}
+
+// ---------------------------------------------------------------------------
+// Bookmark
+// ---------------------------------------------------------------------------
+
+class DocxBookmarkStart extends DocxBlock {
+  final String name;
+
+  const DocxBookmarkStart({required this.name});
 }
 
 // ---------------------------------------------------------------------------
@@ -110,16 +162,23 @@ class DocxTable extends DocxBlock {
 
 class DocxTableRow {
   final List<DocxTableCell> cells;
+  final bool isHeader;
 
-  const DocxTableRow({required this.cells});
+  const DocxTableRow({required this.cells, this.isHeader = false});
 }
 
 class DocxTableCell {
   final List<DocxBlock> blocks;
   final int columnSpan;
+  final int rowSpan;
   final double? width;
 
-  const DocxTableCell({required this.blocks, this.columnSpan = 1, this.width});
+  const DocxTableCell({
+    required this.blocks,
+    this.columnSpan = 1,
+    this.rowSpan = 1,
+    this.width,
+  });
 }
 
 // ---------------------------------------------------------------------------
