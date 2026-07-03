@@ -39,10 +39,10 @@ class _ExcelPreviewExamplePageState extends State<ExcelPreviewExamplePage> {
   Uint8List? _bytes;
   String? _fileName;
 
-  Future<void> _pickExcelFile() async {
+  Future<void> _pickFile() async {
     final result = await FilePicker.pickFiles(
       type: FileType.custom,
-      allowedExtensions: ['xlsx', 'csv'],
+      allowedExtensions: ['xlsx', 'csv', 'docx'],
       withData: true,
     );
 
@@ -69,21 +69,21 @@ class _ExcelPreviewExamplePageState extends State<ExcelPreviewExamplePage> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Spreadsheet Preview'),
+        title: const Text('File Preview'),
         actions: [
           IconButton(
-            onPressed: _pickExcelFile,
+            onPressed: _pickFile,
             icon: const Icon(Icons.folder_open),
-            tooltip: 'Open spreadsheet',
+            tooltip: 'Open file',
           ),
         ],
       ),
       body: bytes == null
           ? Center(
               child: ElevatedButton.icon(
-                onPressed: _pickExcelFile,
+                onPressed: _pickFile,
                 icon: const Icon(Icons.folder_open),
-                label: const Text('Choose XLSX or CSV file'),
+                label: const Text('Choose XLSX, CSV, or DOCX file'),
               ),
             )
           : FilePreviewView(

@@ -1,1 +1,1 @@
-enum PreviewType { xlsx, csv, unsupported }
+enum PreviewType { xlsx, csv, docx, unsupported }

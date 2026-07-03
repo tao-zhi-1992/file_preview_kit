@@ -9,6 +9,8 @@ import '../csv/parser/csv_parser.dart';
 import '../excel/models/excel_workbook.dart';
 import '../excel/parser/xlsx_parser.dart';
 import '../excel/widgets/excel_preview_view.dart';
+import '../word/parser/docx_parser.dart';
+import '../word/widgets/docx_preview_view.dart';
 import 'preview_error_view.dart';
 import 'preview_loading_view.dart';
 import 'unsupported_file_view.dart';
@@ -107,6 +109,10 @@ class _FilePreviewViewState extends State<FilePreviewView> {
         final workbook = CsvParser().parseBytes(widget.source.bytes);
         return ExcelPreviewView(workbook: workbook, texts: texts, theme: theme);
 
+      case PreviewType.docx:
+        final document = DocxParser().parseBytes(widget.source.bytes);
+        return DocxPreviewView(document: document, theme: theme);
+
       case PreviewType.unsupported:
         return UnsupportedFileView(
           title: texts.unsupportedFileTitle,
@@ -126,6 +132,10 @@ class _FilePreviewViewState extends State<FilePreviewView> {
       return PreviewType.csv;
     }
 
+    if (fileName != null && fileName.endsWith('.docx')) {
+      return PreviewType.docx;
+    }
+
     if (source.mimeType ==
         'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet') {
       return PreviewType.xlsx;
@@ -133,6 +143,11 @@ class _FilePreviewViewState extends State<FilePreviewView> {
 
     if (source.mimeType == 'text/csv' || source.mimeType == 'application/csv') {
       return PreviewType.csv;
+    }
+
+    if (source.mimeType ==
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
+      return PreviewType.docx;
     }
 
     return PreviewType.unsupported;

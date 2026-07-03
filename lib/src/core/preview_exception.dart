@@ -19,6 +19,10 @@ class InvalidCsvException extends PreviewException {
   const InvalidCsvException() : super('Invalid or corrupted csv file');
 }
 
+class InvalidDocxException extends PreviewException {
+  const InvalidDocxException() : super('Invalid or corrupted docx file');
+}
+
 class EmptyFileException extends PreviewException {
   const EmptyFileException() : super('File is empty');
 }

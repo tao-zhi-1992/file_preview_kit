@@ -51,6 +51,54 @@ void main() {
     expect(find.text('Sample'), findsOneWidget);
   });
 
+  testWidgets('previews docx bytes by file extension', (tester) async {
+    final bytes = File(
+      'test/fixtures/docx/docx_01_simple_paragraph.docx',
+    ).readAsBytesSync();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: FilePreviewView(
+            source: PreviewSource.bytes(bytes, fileName: 'sample.docx'),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text('Welcome to Northwind Library.', findRichText: true),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('previews docx bytes by mime type', (tester) async {
+    final bytes = File(
+      'test/fixtures/docx/docx_01_simple_paragraph.docx',
+    ).readAsBytesSync();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: FilePreviewView(
+            source: PreviewSource.bytes(
+              bytes,
+              mimeType:
+                  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text('Welcome to Northwind Library.', findRichText: true),
+      findsOneWidget,
+    );
+  });
+
   testWidgets('updates an explicitly provided theme', (tester) async {
     final bytes = File('test/fixtures/xlsx/01_simple.xlsx').readAsBytesSync();
     final source = PreviewSource.bytes(bytes, fileName: 'simple.xlsx');
@@ -159,5 +207,22 @@ void main() {
 
     expect(find.text('Preview failed'), findsOneWidget);
     expect(find.text('Invalid or corrupted xlsx file'), findsOneWidget);
+  });
+
+  testWidgets('shows a readable docx preview error', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: FilePreviewView(
+          source: PreviewSource.bytes(
+            Uint8List.fromList('broken'.codeUnits),
+            fileName: 'broken.docx',
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Preview failed'), findsOneWidget);
+    expect(find.text('Invalid or corrupted docx file'), findsOneWidget);
   });
 }

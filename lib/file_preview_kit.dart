@@ -13,4 +13,7 @@ export 'src/excel/models/excel_sheet.dart';
 export 'src/excel/models/excel_workbook.dart';
 export 'src/excel/parser/xlsx_parser.dart';
 export 'src/excel/widgets/excel_preview_view.dart';
+export 'src/word/models/docx_document.dart';
+export 'src/word/parser/docx_parser.dart';
+export 'src/word/widgets/docx_preview_view.dart';
 export 'src/widgets/file_preview_view.dart';
