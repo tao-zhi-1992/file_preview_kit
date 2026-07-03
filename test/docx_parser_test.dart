@@ -101,7 +101,7 @@ void main() {
     expect(paragraph.style.spacingAfter, 8);
     expect(paragraph.style.lineHeight, 1.5);
     expect(run.style.strike, isTrue);
-    expect(run.style.fontSize, 16);
+    expect(run.style.fontSize, closeTo(21.3333, 0.001));
     expect(run.style.color, 0xFFFF0000);
     expect(run.style.highlightColor, 0xFFFFFF00);
   });
@@ -239,16 +239,20 @@ void main() {
     );
   });
 
-  test('falls back to a bullet when numbering metadata is missing', () {
+  test('ignores missing and explicitly disabled numbering definitions', () {
     final document = parser.parseBytes(
       _documentBytes(
-        '<w:p><w:pPr><w:numPr><w:ilvl w:val="0"/><w:numId w:val="9"/></w:numPr></w:pPr><w:r><w:t>Fallback item</w:t></w:r></w:p>',
+        '<w:p><w:pPr><w:numPr><w:ilvl w:val="0"/><w:numId w:val="9"/></w:numPr></w:pPr><w:r><w:t>Missing definition</w:t></w:r></w:p>'
+        '<w:p><w:pPr><w:numPr><w:ilvl w:val="0"/><w:numId w:val="0"/></w:numPr></w:pPr><w:r><w:t>Disabled numbering</w:t></w:r></w:p>',
       ),
     );
-    final list = (document.blocks.single as DocxParagraph).list!;
 
-    expect(list.type, DocxListType.bullet);
-    expect(list.number, isNull);
+    expect(
+      document.blocks.whereType<DocxParagraph>().map(
+        (paragraph) => paragraph.list,
+      ),
+      everyElement(isNull),
+    );
   });
 
   test('keeps an unavailable image block when media cannot be resolved', () {
@@ -517,6 +521,57 @@ void main() {
     expect(paragraph.runs.first.style.bold, isTrue);
     expect(paragraph.runs.first.style.color, 0xFF336699);
     expect(paragraph.runs.last.style.bold, isFalse);
+  });
+
+  test('resolves default and based-on font properties in logical pixels', () {
+    final document = parser.parseBytes(
+      _documentBytes(
+        '<w:p><w:pPr><w:pStyle w:val="DerivedParagraph"/></w:pPr><w:r><w:t>Inherited font</w:t></w:r><w:r><w:rPr><w:rStyle w:val="DerivedCharacter"/><w:b w:val="false"/></w:rPr><w:t> override</w:t></w:r></w:p>',
+        stylesXml:
+            '''<w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+<w:docDefaults><w:rPrDefault><w:rPr><w:sz w:val="22"/><w:rFonts w:eastAsia="Fictional Sans"/></w:rPr></w:rPrDefault></w:docDefaults>
+<w:style w:type="paragraph" w:styleId="BaseParagraph"><w:rPr><w:sz w:val="30"/><w:b/></w:rPr></w:style>
+<w:style w:type="paragraph" w:styleId="DerivedParagraph"><w:basedOn w:val="BaseParagraph"/></w:style>
+<w:style w:type="character" w:styleId="BaseCharacter"><w:rPr><w:i/></w:rPr></w:style>
+<w:style w:type="character" w:styleId="DerivedCharacter"><w:basedOn w:val="BaseCharacter"/></w:style>
+</w:styles>''',
+      ),
+    );
+    final runs = (document.blocks.single as DocxParagraph).runs;
+
+    expect(runs.first.style.fontSize, 20);
+    expect(runs.first.style.fontFamily, 'Fictional Sans');
+    expect(runs.first.style.bold, isTrue);
+    expect(runs.last.style.italic, isTrue);
+    expect(runs.last.style.bold, isFalse);
+  });
+
+  test('distinguishes automatic and exact paragraph line spacing', () {
+    final document = parser.parseBytes(
+      _documentBytes(
+        '<w:p><w:pPr><w:spacing w:line="360" w:lineRule="exact"/></w:pPr><w:r><w:t>Exact spacing</w:t></w:r></w:p>',
+      ),
+    );
+    final style = (document.blocks.single as DocxParagraph).style;
+
+    expect(style.lineHeight, isNull);
+    expect(style.lineSpacing, 24);
+  });
+
+  test('parses list indentation from numbering levels', () {
+    final document = parser.parseBytes(
+      _documentBytes(
+        '<w:p><w:pPr><w:numPr><w:ilvl w:val="1"/><w:numId w:val="7"/></w:numPr></w:pPr><w:r><w:t>Nested item</w:t></w:r></w:p>',
+        extraParts: {
+          'word/numbering.xml':
+              '''<w:numbering xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:abstractNum w:abstractNumId="3"><w:lvl w:ilvl="1"><w:numFmt w:val="bullet"/><w:pPr><w:ind w:start="1440" w:hanging="360"/></w:pPr></w:lvl></w:abstractNum><w:num w:numId="7"><w:abstractNumId w:val="3"/></w:num></w:numbering>''',
+        },
+      ),
+    );
+    final list = (document.blocks.single as DocxParagraph).list!;
+
+    expect(list.indentStart, 96);
+    expect(list.hangingIndent, 24);
   });
 
   test('parses complex field hyperlinks and form checkboxes', () {

@@ -173,11 +173,18 @@ class DocxParser {
   // -----------------------------------------------------------------------
 
   List<DocxBlock> _parseBlocks(XmlElement parent, _ParseState state) {
+    return _parseBlockElements(parent.childElements, state);
+  }
+
+  List<DocxBlock> _parseBlockElements(
+    Iterable<XmlElement> elements,
+    _ParseState state,
+  ) {
     final blocks = <DocxBlock>[];
     final deletedParagraphRuns = <DocxTextRun>[];
     final deletedParagraphBlocks = <DocxBlock>[];
 
-    for (final child in parent.childElements) {
+    for (final child in elements) {
       switch (child.name.local) {
         case 'p':
           final parsed = _parseParagraph(child, state);
@@ -251,13 +258,11 @@ class DocxParser {
     final indent = paragraphProperties == null
         ? null
         : _directChild(paragraphProperties, 'ind');
-    final inheritedProperties = resolvedStyle?.pPr;
-    final inheritedSpacing = inheritedProperties == null
-        ? null
-        : _directChild(inheritedProperties, 'spacing');
-    final inheritedIndent = inheritedProperties == null
-        ? null
-        : _directChild(inheritedProperties, 'ind');
+    final inheritedSpacing = state.styles.findParagraphProperty(
+      styleId,
+      'spacing',
+    );
+    final inheritedIndent = state.styles.findParagraphProperty(styleId, 'ind');
     final alignment = _parseAlignment(_attribute(justification, 'val'));
     final spacingBefore = _twipsToPixels(
       _attribute(spacing, 'before') ?? _attribute(inheritedSpacing, 'before'),
@@ -265,9 +270,17 @@ class DocxParser {
     final spacingAfter = _twipsToPixels(
       _attribute(spacing, 'after') ?? _attribute(inheritedSpacing, 'after'),
     );
-    final lineHeight = _lineHeight(
-      _attribute(spacing, 'line') ?? _attribute(inheritedSpacing, 'line'),
-    );
+    final line =
+        _attribute(spacing, 'line') ?? _attribute(inheritedSpacing, 'line');
+    final lineRule =
+        _attribute(spacing, 'lineRule') ??
+        _attribute(inheritedSpacing, 'lineRule');
+    final lineHeight = lineRule == null || lineRule == 'auto'
+        ? _lineHeight(line)
+        : null;
+    final lineSpacing = lineRule == 'exact' || lineRule == 'atLeast'
+        ? _twipsToPixels(line)
+        : null;
 
     final paragraphStyle = DocxParagraphStyle(
       styleId: resolvedStyle?.styleId ?? styleId,
@@ -277,15 +290,14 @@ class DocxParser {
           alignment ??
           _parseAlignment(
             _attribute(
-              inheritedProperties == null
-                  ? null
-                  : _directChild(inheritedProperties, 'jc'),
+              state.styles.findParagraphProperty(styleId, 'jc'),
               'val',
             ),
           ),
       spacingBefore: spacingBefore,
       spacingAfter: spacingAfter,
       lineHeight: lineHeight,
+      lineSpacing: lineSpacing,
       indentStart: _twipsToPixels(
         _attribute(indent, 'start') ??
             _attribute(indent, 'left') ??
@@ -311,7 +323,10 @@ class DocxParser {
       paragraphProperties,
       state,
       styleId: resolvedStyle?.styleId ?? styleId,
-      inheritedProperties: resolvedStyle?.pPr,
+      inheritedNumberingProperties: state.styles.findParagraphProperty(
+        styleId,
+        'numPr',
+      ),
     );
     final blocks = <DocxBlock>[];
     final extraBlocks = <DocxBlock>[];
@@ -348,18 +363,13 @@ class DocxParser {
             addParagraph,
             addBlock,
             list != null && runs.isEmpty && blocks.isEmpty,
-            paragraphRunProperties: resolvedStyle?.rPr,
+            paragraphStyleId: styleId,
             fields: fields,
             extraBlocks: extraBlocks,
           );
           break;
         case 'hyperlink':
-          _parseHyperlink(
-            child,
-            state,
-            runs,
-            paragraphRunProperties: resolvedStyle?.rPr,
-          );
+          _parseHyperlink(child, state, runs, paragraphStyleId: styleId);
           break;
         case 'bookmarkStart':
           final name = _attribute(child, 'name');
@@ -401,7 +411,7 @@ class DocxParser {
               addParagraph,
               addBlock,
               list != null && runs.isEmpty && blocks.isEmpty,
-              paragraphRunProperties: resolvedStyle?.rPr,
+              paragraphStyleId: styleId,
               fields: fields,
               extraBlocks: extraBlocks,
             );
@@ -418,7 +428,7 @@ class DocxParser {
               addParagraph,
               addBlock,
               list != null && runs.isEmpty && blocks.isEmpty,
-              paragraphRunProperties: resolvedStyle?.rPr,
+              paragraphStyleId: styleId,
               fields: fields,
               extraBlocks: extraBlocks,
             );
@@ -440,7 +450,7 @@ class DocxParser {
     void Function({bool evenWhenEmpty}) addParagraph,
     void Function(DocxBlock) addBlock,
     bool hasList, {
-    XmlElement? paragraphRunProperties,
+    String? paragraphStyleId,
     _ComplexFieldState? fields,
     List<DocxBlock>? extraBlocks,
   }) {
@@ -448,7 +458,7 @@ class DocxParser {
     final textStyle = _readRunStyle(
       properties,
       state.styles,
-      inheritedProperties: paragraphRunProperties,
+      paragraphStyleId: paragraphStyleId,
     );
     final styleId = properties == null
         ? null
@@ -569,7 +579,7 @@ class DocxParser {
     XmlElement element,
     _ParseState state,
     List<DocxTextRun> runs, {
-    XmlElement? paragraphRunProperties,
+    String? paragraphStyleId,
   }) {
     final relationshipId = _attribute(element, 'id');
     final anchor = _attribute(element, 'anchor');
@@ -589,7 +599,7 @@ class DocxParser {
         final textStyle = _readRunStyle(
           properties,
           state.styles,
-          inheritedProperties: paragraphRunProperties,
+          paragraphStyleId: paragraphStyleId,
         );
         final styleId = properties == null
             ? null
@@ -631,94 +641,58 @@ class DocxParser {
   DocxTextStyle _readRunStyle(
     XmlElement? properties,
     _DocxStyles styles, {
-    XmlElement? inheritedProperties,
+    String? paragraphStyleId,
   }) {
-    // Resolve character style if present.
     final styleId = properties == null
         ? null
         : _attribute(_directChild(properties, 'rStyle'), 'val');
-    final charStyle = styleId != null
-        ? styles.findCharacterStyle(styleId)
-        : null;
+    XmlElement? inherited(String name) =>
+        styles.findRunProperty(styleId, paragraphStyleId, name);
 
     return DocxTextStyle(
-      bold:
-          _onOff(properties, 'b') ??
-          charStyle?.bold ??
-          _onOff(inheritedProperties, 'b') ??
-          false,
-      italic:
-          _onOff(properties, 'i') ??
-          charStyle?.italic ??
-          _onOff(inheritedProperties, 'i') ??
-          false,
+      bold: _onOff(properties, 'b') ?? _onOffElement(inherited('b')) ?? false,
+      italic: _onOff(properties, 'i') ?? _onOffElement(inherited('i')) ?? false,
       underline:
-          _underline(properties) ??
-          charStyle?.underline ??
-          _underline(inheritedProperties) ??
-          false,
+          _underline(properties) ?? _underlineElement(inherited('u')) ?? false,
       strike:
           _onOff(properties, 'strike') ??
-          charStyle?.strike ??
-          _onOff(inheritedProperties, 'strike') ??
+          _onOffElement(inherited('strike')) ??
           false,
       allCaps:
           _onOff(properties, 'caps') ??
-          charStyle?.allCaps ??
-          _onOff(inheritedProperties, 'caps') ??
+          _onOffElement(inherited('caps')) ??
           false,
       smallCaps:
           _onOff(properties, 'smallCaps') ??
-          charStyle?.smallCaps ??
-          _onOff(inheritedProperties, 'smallCaps') ??
+          _onOffElement(inherited('smallCaps')) ??
           false,
       fontSize:
-          _halfPoints(_attribute(_directChild(properties, 'sz'), 'val')) ??
-          charStyle?.fontSize ??
-          _halfPoints(
+          _halfPointsToPixels(
             _attribute(
-              inheritedProperties == null
-                  ? null
-                  : _directChild(inheritedProperties, 'sz'),
+              _directChild(properties, 'sz') ??
+                  _directChild(properties, 'szCs'),
               'val',
             ),
+          ) ??
+          _halfPointsToPixels(
+            _attribute(inherited('sz') ?? inherited('szCs'), 'val'),
           ),
       color:
           _hexColor(_attribute(_directChild(properties, 'color'), 'val')) ??
-          charStyle?.color ??
-          _hexColor(
-            _attribute(
-              inheritedProperties == null
-                  ? null
-                  : _directChild(inheritedProperties, 'color'),
-              'val',
-            ),
-          ),
+          _hexColor(_attribute(inherited('color'), 'val')),
       highlightColor:
           _highlightColor(
             _attribute(_directChild(properties, 'highlight'), 'val'),
           ) ??
-          charStyle?.highlightColor ??
-          _highlightColor(
-            _attribute(
-              inheritedProperties == null
-                  ? null
-                  : _directChild(inheritedProperties, 'highlight'),
-              'val',
-            ),
-          ),
+          _highlightColor(_attribute(inherited('highlight'), 'val')),
       fontFamily:
-          _attribute(_directChild(properties, 'rFonts'), 'ascii') ??
-          charStyle?.fontFamily ??
-          _attribute(
-            inheritedProperties == null
-                ? null
-                : _directChild(inheritedProperties, 'rFonts'),
-            'ascii',
-          ),
-      verticalAlignment: _parseVerticalAlignment(
-        _attribute(_directChild(properties, 'vertAlign'), 'val'),
-      ),
+          _fontFamily(_directChild(properties, 'rFonts')) ??
+          _fontFamily(inherited('rFonts')),
+      verticalAlignment:
+          _parseVerticalAlignment(
+            _attribute(_directChild(properties, 'vertAlign'), 'val'),
+          ) ??
+          _parseVerticalAlignment(_attribute(inherited('vertAlign'), 'val')),
     );
   }
 
@@ -787,11 +761,11 @@ class DocxParser {
     XmlElement? paragraphProperties,
     _ParseState state, {
     String? styleId,
-    XmlElement? inheritedProperties,
+    XmlElement? inheritedNumberingProperties,
   }) {
     final numberingProperties =
         _directChild(paragraphProperties, 'numPr') ??
-        _directChild(inheritedProperties, 'numPr');
+        inheritedNumberingProperties;
 
     final level =
         int.tryParse(
@@ -801,6 +775,9 @@ class DocxParser {
     var numberId = int.tryParse(
       _attribute(_directChild(numberingProperties, 'numId'), 'val') ?? '',
     );
+    if (numberId == 0) {
+      return null;
+    }
     var definition = numberId == null
         ? null
         : state.numbering[numberId]?[level];
@@ -818,13 +795,20 @@ class DocxParser {
         }
       }
     }
-    if (numberingProperties == null && definition == null) {
+    if (definition == null) {
       return null;
     }
-    final type = definition?.type ?? DocxListType.bullet;
+    final type = definition.type;
+    final indentStart = definition.indentStart;
+    final hangingIndent = definition.hangingIndent;
 
     if (type == DocxListType.bullet || numberId == null) {
-      return DocxListInfo(type: type, level: level);
+      return DocxListInfo(
+        type: type,
+        level: level,
+        indentStart: indentStart,
+        hangingIndent: hangingIndent,
+      );
     }
 
     final counters = state.numberingCounters.putIfAbsent(
@@ -832,10 +816,16 @@ class DocxParser {
       () => <int, int>{},
     );
     counters.removeWhere((counterLevel, _) => counterLevel > level);
-    final number = (counters[level] ?? (definition?.start ?? 1) - 1) + 1;
+    final number = (counters[level] ?? definition.start - 1) + 1;
     counters[level] = number;
 
-    return DocxListInfo(type: type, level: level, number: number);
+    return DocxListInfo(
+      type: type,
+      level: level,
+      number: number,
+      indentStart: indentStart,
+      hangingIndent: hangingIndent,
+    );
   }
 
   // -----------------------------------------------------------------------
@@ -1216,19 +1206,12 @@ class DocxParser {
   // Value parsing
   // -----------------------------------------------------------------------
 
-  bool _isEnabled(XmlElement? properties, String localName) {
-    return _onOff(properties, localName) ?? false;
-  }
-
-  bool _isUnderline(XmlElement? properties) {
-    return _underline(properties) ?? false;
-  }
-
   bool? _onOff(XmlElement? properties, String localName) {
-    final property = _directChild(properties, localName);
-    if (property == null) {
-      return null;
-    }
+    return _onOffElement(_directChild(properties, localName));
+  }
+
+  bool? _onOffElement(XmlElement? property) {
+    if (property == null) return null;
     final value = _attribute(property, 'val')?.toLowerCase();
     return value != '0' &&
         value != 'false' &&
@@ -1237,10 +1220,11 @@ class DocxParser {
   }
 
   bool? _underline(XmlElement? properties) {
-    final property = _directChild(properties, 'u');
-    if (property == null) {
-      return null;
-    }
+    return _underlineElement(_directChild(properties, 'u'));
+  }
+
+  bool? _underlineElement(XmlElement? property) {
+    if (property == null) return null;
     final value = _attribute(property, 'val')?.toLowerCase();
     return value != null && value != 'none' && value != 'false' && value != '0';
   }
@@ -1303,9 +1287,16 @@ class DocxParser {
     return line == null || line <= 0 ? null : line / 240;
   }
 
-  double? _halfPoints(String? value) {
+  double? _halfPointsToPixels(String? value) {
     final halfPoints = int.tryParse(value ?? '');
-    return halfPoints == null ? null : halfPoints / 2;
+    return halfPoints == null || halfPoints <= 0 ? null : halfPoints * 2 / 3;
+  }
+
+  String? _fontFamily(XmlElement? fonts) {
+    return _attribute(fonts, 'ascii') ??
+        _attribute(fonts, 'hAnsi') ??
+        _attribute(fonts, 'eastAsia') ??
+        _attribute(fonts, 'cs');
   }
 
   int? _hexColor(String? value) {
@@ -1380,6 +1371,13 @@ class DocxParser {
     }
 
     final document = XmlDocument.parse(xmlText);
+    final defaults = _firstDescendant(document, 'docDefaults');
+    final defaultParagraphProperties = defaults == null
+        ? null
+        : _firstDescendant(defaults, 'pPr');
+    final defaultRunProperties = defaults == null
+        ? null
+        : _firstDescendant(defaults, 'rPr');
 
     for (final styleElement in document.descendants.whereType<XmlElement>()) {
       if (styleElement.name.local != 'style') {
@@ -1404,25 +1402,12 @@ class DocxParser {
         );
       } else if (type == 'character') {
         final rPr = _directChild(styleElement, 'rPr');
-        if (rPr != null) {
-          characterStyleMap[styleId] = _DocxCharacterStyleDef(
-            styleId: styleId,
-            name: _attribute(_directChild(styleElement, 'name'), 'val'),
-            basedOn: _attribute(_directChild(styleElement, 'basedOn'), 'val'),
-            bold: _isEnabled(rPr, 'b'),
-            italic: _isEnabled(rPr, 'i'),
-            underline: _isUnderline(rPr),
-            strike: _isEnabled(rPr, 'strike'),
-            allCaps: _isEnabled(rPr, 'caps'),
-            smallCaps: _isEnabled(rPr, 'smallCaps'),
-            fontSize: _halfPoints(_attribute(_directChild(rPr, 'sz'), 'val')),
-            color: _hexColor(_attribute(_directChild(rPr, 'color'), 'val')),
-            highlightColor: _highlightColor(
-              _attribute(_directChild(rPr, 'highlight'), 'val'),
-            ),
-            fontFamily: _attribute(_directChild(rPr, 'rFonts'), 'ascii'),
-          );
-        }
+        characterStyleMap[styleId] = _DocxCharacterStyleDef(
+          styleId: styleId,
+          name: _attribute(_directChild(styleElement, 'name'), 'val'),
+          basedOn: _attribute(_directChild(styleElement, 'basedOn'), 'val'),
+          rPr: rPr,
+        );
       } else if (type == 'table') {
         tableStyleMap.putIfAbsent(
           styleId,
@@ -1450,6 +1435,8 @@ class DocxParser {
       characterStyleMap,
       tableStyleMap,
       numberingStyleMap,
+      defaultParagraphProperties,
+      defaultRunProperties,
     );
   }
 
@@ -1552,6 +1539,7 @@ class DocxParser {
               _attribute(_directChild(levelElement, 'start'), 'val') ?? '',
             ) ??
             1;
+        final indent = _directChild(_directChild(levelElement, 'pPr'), 'ind');
         levels[level] = _NumberingLevel(
           type: format == 'bullet'
               ? DocxListType.bullet
@@ -1561,6 +1549,10 @@ class DocxParser {
             _directChild(levelElement, 'pStyle'),
             'val',
           ),
+          indentStart: _twipsToPixels(
+            _attribute(indent, 'start') ?? _attribute(indent, 'left'),
+          ),
+          hangingIndent: _twipsToPixels(_attribute(indent, 'hanging')),
         );
       }
 
@@ -1859,11 +1851,15 @@ class _NumberingLevel {
   final DocxListType type;
   final int start;
   final String? paragraphStyleId;
+  final double? indentStart;
+  final double? hangingIndent;
 
   const _NumberingLevel({
     required this.type,
     required this.start,
     this.paragraphStyleId,
+    this.indentStart,
+    this.hangingIndent,
   });
 
   _NumberingLevel withStart(int value) {
@@ -1871,6 +1867,8 @@ class _NumberingLevel {
       type: type,
       start: value,
       paragraphStyleId: paragraphStyleId,
+      indentStart: indentStart,
+      hangingIndent: hangingIndent,
     );
   }
 }
@@ -1884,13 +1882,17 @@ class _DocxStyles {
   final Map<String, _DocxCharacterStyleDef> characterStyles;
   final Map<String, String?> tableStyles;
   final Map<String, int?> numberingStyles;
+  final XmlElement? defaultParagraphProperties;
+  final XmlElement? defaultRunProperties;
 
   const _DocxStyles(
     this.paragraphStyles,
     this.characterStyles,
     this.tableStyles,
-    this.numberingStyles,
-  );
+    this.numberingStyles, [
+    this.defaultParagraphProperties,
+    this.defaultRunProperties,
+  ]);
 
   _DocxParagraphStyleDef? resolveParagraphStyle(String? styleId) {
     if (styleId == null) {
@@ -1904,6 +1906,61 @@ class _DocxStyles {
       return null;
     }
     return characterStyles[styleId];
+  }
+
+  XmlElement? findParagraphProperty(String? styleId, String name) {
+    final visited = <String>{};
+    var currentId = styleId;
+    while (currentId != null && visited.add(currentId)) {
+      final style = paragraphStyles[currentId];
+      final property = _child(style?.pPr, name);
+      if (property != null) {
+        return property;
+      }
+      currentId = style?.basedOn;
+    }
+    return _child(defaultParagraphProperties, name);
+  }
+
+  XmlElement? findRunProperty(
+    String? characterStyleId,
+    String? paragraphStyleId,
+    String name,
+  ) {
+    final visited = <String>{};
+    var currentCharacterId = characterStyleId;
+    while (currentCharacterId != null && visited.add(currentCharacterId)) {
+      final style = characterStyles[currentCharacterId];
+      final property = _child(style?.rPr, name);
+      if (property != null) {
+        return property;
+      }
+      currentCharacterId = style?.basedOn;
+    }
+
+    visited.clear();
+    var currentParagraphId = paragraphStyleId;
+    while (currentParagraphId != null && visited.add(currentParagraphId)) {
+      final style = paragraphStyles[currentParagraphId];
+      final property = _child(style?.rPr, name);
+      if (property != null) {
+        return property;
+      }
+      currentParagraphId = style?.basedOn;
+    }
+    return _child(defaultRunProperties, name);
+  }
+
+  static XmlElement? _child(XmlElement? parent, String name) {
+    if (parent == null) {
+      return null;
+    }
+    for (final child in parent.childElements) {
+      if (child.name.local == name) {
+        return child;
+      }
+    }
+    return null;
   }
 }
 
@@ -1927,31 +1984,13 @@ class _DocxCharacterStyleDef {
   final String styleId;
   final String? name;
   final String? basedOn;
-  final bool bold;
-  final bool italic;
-  final bool underline;
-  final bool strike;
-  final bool allCaps;
-  final bool smallCaps;
-  final double? fontSize;
-  final int? color;
-  final int? highlightColor;
-  final String? fontFamily;
+  final XmlElement? rPr;
 
   const _DocxCharacterStyleDef({
     required this.styleId,
     this.name,
     this.basedOn,
-    this.bold = false,
-    this.italic = false,
-    this.underline = false,
-    this.strike = false,
-    this.allCaps = false,
-    this.smallCaps = false,
-    this.fontSize,
-    this.color,
-    this.highlightColor,
-    this.fontFamily,
+    this.rPr,
   });
 }
 

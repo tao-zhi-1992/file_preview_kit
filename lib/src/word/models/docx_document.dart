@@ -72,6 +72,7 @@ class DocxParagraphStyle {
   final double? spacingBefore;
   final double? spacingAfter;
   final double? lineHeight;
+  final double? lineSpacing;
   final double? indentStart;
   final double? indentEnd;
   final double? firstLineIndent;
@@ -85,6 +86,7 @@ class DocxParagraphStyle {
     this.spacingBefore,
     this.spacingAfter,
     this.lineHeight,
+    this.lineSpacing,
     this.indentStart,
     this.indentEnd,
     this.firstLineIndent,
@@ -259,8 +261,16 @@ class DocxListInfo {
   final DocxListType type;
   final int level;
   final int? number;
+  final double? indentStart;
+  final double? hangingIndent;
 
-  const DocxListInfo({required this.type, required this.level, this.number});
+  const DocxListInfo({
+    required this.type,
+    required this.level,
+    this.number,
+    this.indentStart,
+    this.hangingIndent,
+  });
 }
 
 enum DocxParagraphAlignment { left, center, right, justify }

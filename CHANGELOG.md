@@ -10,3 +10,5 @@
 - Expanded DOCX parsing based on Mammoth semantics, including relationship-based
   part discovery, inline links, bookmarks, checkboxes, notes, comments, text
   boxes, tracked changes, richer styles, numbering, and legacy images.
+- Corrected DOCX point-to-pixel font sizing and style inheritance, restored
+  first-line/list indentation, and ignored unresolved numbering definitions.

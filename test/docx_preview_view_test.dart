@@ -56,7 +56,9 @@ void main() {
     expect(children[3].style!.color, const Color(0xFFFF0000));
     expect(children[3].style!.backgroundColor, const Color(0xFFFFFF00));
     expect(root.style!.height, 2);
-    final padding = tester.widget<Padding>(find.byType(Padding).first);
+    final padding = tester
+        .widgetList<Padding>(find.byType(Padding))
+        .singleWhere((padding) => padding.child is RichText);
     expect(padding.padding, const EdgeInsets.only(top: 12, bottom: 6));
   });
 
@@ -130,13 +132,14 @@ void main() {
       expect(titleRichText.textAlign, TextAlign.center);
       final titleSpan = titleRichText.text as TextSpan;
       expect(titleSpan.style!.fontWeight, FontWeight.bold);
-      expect(titleSpan.style!.fontSize, 26); // overridden by style kind
+      expect(titleSpan.style!.fontSize, closeTo(37.3333, 0.001));
       expect(titleSpan.children!.single.style!.color, const Color(0xFF1A237E));
       expect(titleSpan.children!.single.style!.fontSize, 28);
 
       // First paragraph padding
       final paddings = tester
           .widgetList<Padding>(find.byType(Padding))
+          .where((padding) => padding.child is RichText)
           .toList();
       expect(
         paddings[0].padding,
@@ -252,14 +255,14 @@ void main() {
         .widgetList<RichText>(find.byType(RichText))
         .map((widget) => widget.text as TextSpan)
         .toList();
-    expect(spans[0].style!.fontSize, 26);
+    expect(spans[0].style!.fontSize, closeTo(37.3333, 0.001));
     expect(spans[0].style!.fontWeight, FontWeight.bold);
-    expect(spans[1].style!.fontSize, 18);
+    expect(spans[1].style!.fontSize, 16);
     expect(spans[1].style!.fontStyle, FontStyle.italic);
-    expect(spans[2].style!.fontSize, 22);
-    expect(spans[3].style!.fontSize, 20);
-    expect(spans[4].style!.fontSize, 18);
-    expect(spans[5].style!.fontSize, 16);
+    expect(spans[2].style!.fontSize, closeTo(21.3333, 0.001));
+    expect(spans[3].style!.fontSize, closeTo(17.3333, 0.001));
+    expect(spans[4].style!.fontSize, 16);
+    expect(spans[5].style!.fontSize, closeTo(14.6667, 0.001));
   });
 
   testWidgets('renders bullet and numbered list markers', (tester) async {
@@ -282,16 +285,13 @@ void main() {
       ),
     );
 
-    expect(find.text('◦ Nested item', findRichText: true), findsOneWidget);
-    expect(find.text('3. Third item', findRichText: true), findsOneWidget);
-    final paragraphPadding = tester.widget<Padding>(
-      find
-          .ancestor(
-            of: find.text('◦ Nested item', findRichText: true),
-            matching: find.byType(Padding),
-          )
-          .first,
-    );
+    expect(find.text('◦'), findsOneWidget);
+    expect(find.text('Nested item', findRichText: true), findsOneWidget);
+    expect(find.text('3.'), findsOneWidget);
+    expect(find.text('Third item', findRichText: true), findsOneWidget);
+    final paragraphPadding = tester
+        .widgetList<Padding>(find.byType(Padding))
+        .firstWhere((padding) => padding.child is Row);
     expect((paragraphPadding.padding as EdgeInsets).left, 24);
   });
 
@@ -432,7 +432,9 @@ void main() {
     await tester.tap(find.text('Example'));
 
     expect(opened, ['https://example.test/guide']);
-    final padding = tester.widget<Padding>(find.byType(Padding).first);
+    final padding = tester
+        .widgetList<Padding>(find.byType(Padding))
+        .singleWhere((padding) => padding.child is RichText);
     expect(
       padding.padding,
       const EdgeInsets.only(left: 20, right: 10, bottom: 8),
@@ -476,5 +478,41 @@ void main() {
     expect(find.text('Comments'), findsOneWidget);
     expect(find.text('FR 1.'), findsOneWidget);
     expect(find.text('Comment text', findRichText: true), findsOneWidget);
+  });
+
+  testWidgets('applies first-line and hanging list indentation', (
+    tester,
+  ) async {
+    const document = DocxDocument(
+      blocks: [
+        DocxParagraph(
+          style: DocxParagraphStyle(indentStart: 20, firstLineIndent: 16),
+          runs: [DocxTextRun(text: 'Indented paragraph')],
+        ),
+        DocxParagraph(
+          list: DocxListInfo(
+            type: DocxListType.bullet,
+            level: 0,
+            indentStart: 72,
+            hangingIndent: 24,
+          ),
+          runs: [DocxTextRun(text: 'Hanging list item')],
+        ),
+      ],
+    );
+
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Scaffold(body: DocxPreviewView(document: document)),
+      ),
+    );
+
+    final firstLine = tester.widget<RichText>(find.byType(RichText).first);
+    final prefix = (firstLine.text as TextSpan).children!.first as WidgetSpan;
+    expect((prefix.child as SizedBox).width, 16);
+    final listPadding = tester
+        .widgetList<Padding>(find.byType(Padding))
+        .firstWhere((padding) => padding.child is Row);
+    expect((listPadding.padding as EdgeInsets).left, 48);
   });
 }

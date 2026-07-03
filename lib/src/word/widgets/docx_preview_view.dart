@@ -58,6 +58,16 @@ class DocxPreviewView extends StatelessWidget {
   }
 }
 
+int _tableColumnCount(DocxTable table) {
+  return table.rows.fold<int>(0, (count, row) {
+    final columns = row.cells.fold<int>(
+      0,
+      (total, cell) => total + cell.columnSpan,
+    );
+    return math.max(count, columns);
+  });
+}
+
 class _DocxBlockView extends StatelessWidget {
   final DocxBlock block;
   final ValueChanged<String>? onLinkTap;
@@ -104,67 +114,97 @@ class _DocxParagraphView extends StatelessWidget {
       _ => 0.0,
     };
     final defaultSpacingAfter = list == null ? 8.0 : 4.0;
+    final indentStart =
+        style.indentStart ??
+        list?.indentStart ??
+        (list == null ? 0.0 : (list.level + 1) * 24.0);
+    final hangingIndent =
+        style.hangingIndent ??
+        list?.hangingIndent ??
+        (list == null ? 0.0 : 24.0);
+    final firstLineIndent = style.firstLineIndent ?? 0;
+    final content = RichText(
+      textAlign: switch (style.align) {
+        DocxParagraphAlignment.left => TextAlign.left,
+        DocxParagraphAlignment.center => TextAlign.center,
+        DocxParagraphAlignment.right => TextAlign.right,
+        DocxParagraphAlignment.justify => TextAlign.justify,
+        null => TextAlign.start,
+      },
+      text: TextSpan(
+        style: baseStyle,
+        children: [
+          if (list == null && firstLineIndent > 0)
+            WidgetSpan(child: SizedBox(width: firstLineIndent)),
+          for (final run in paragraph.runs)
+            _textSpanForRun(run, baseStyle, onLinkTap),
+        ],
+      ),
+    );
 
     return Padding(
       padding: EdgeInsets.only(
-        left: (list?.level ?? 0) * 24 + (style.indentStart ?? 0),
-        right: style.indentEnd ?? 0,
+        left: list == null
+            ? math.max(0, indentStart)
+            : math.max(0, indentStart - hangingIndent),
+        right: math.max(0, style.indentEnd ?? 0),
         top: style.spacingBefore ?? defaultSpacingBefore,
         bottom: style.spacingAfter ?? defaultSpacingAfter,
       ),
-      child: RichText(
-        textAlign: switch (style.align) {
-          DocxParagraphAlignment.left => TextAlign.left,
-          DocxParagraphAlignment.center => TextAlign.center,
-          DocxParagraphAlignment.right => TextAlign.right,
-          DocxParagraphAlignment.justify => TextAlign.justify,
-          null => TextAlign.start,
-        },
-        text: TextSpan(
-          style: baseStyle,
-          children: [
-            if (list != null)
-              TextSpan(
-                text: list.type == DocxListType.bullet
-                    ? '${_bullet(list.level)} '
-                    : '${list.number ?? 1}. ',
-              ),
-            for (final run in paragraph.runs)
-              _textSpanForRun(run, baseStyle, onLinkTap),
-          ],
-        ),
-      ),
+      child: list == null
+          ? content
+          : Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                SizedBox(
+                  width: hangingIndent,
+                  child: Text(
+                    list.type == DocxListType.bullet
+                        ? _bullet(list.level)
+                        : '${list.number ?? 1}.',
+                    textAlign: TextAlign.right,
+                    style: baseStyle,
+                  ),
+                ),
+                Expanded(child: content),
+              ],
+            ),
     );
   }
 
   TextStyle _textStyle(BuildContext context) {
-    final normal = DefaultTextStyle.of(
-      context,
-    ).style.copyWith(fontSize: 16, height: paragraph.style.lineHeight ?? 1.5);
+    final normal = DefaultTextStyle.of(context).style.copyWith(
+      fontSize: 14.6667,
+      height: paragraph.style.lineHeight ?? 1.15,
+    );
 
-    return switch (paragraph.style.kind) {
+    final style = switch (paragraph.style.kind) {
       DocxBuiltinKind.title => normal.copyWith(
-        fontSize: 26,
+        fontSize: 37.3333,
         fontWeight: FontWeight.bold,
       ),
       DocxBuiltinKind.subtitle => normal.copyWith(
-        fontSize: 18,
+        fontSize: 16,
         fontStyle: FontStyle.italic,
       ),
       DocxBuiltinKind.heading1 => normal.copyWith(
-        fontSize: 22,
+        fontSize: 21.3333,
         fontWeight: FontWeight.bold,
       ),
       DocxBuiltinKind.heading2 => normal.copyWith(
-        fontSize: 20,
+        fontSize: 17.3333,
         fontWeight: FontWeight.bold,
       ),
       DocxBuiltinKind.heading3 => normal.copyWith(
-        fontSize: 18,
+        fontSize: 16,
         fontWeight: FontWeight.bold,
       ),
       _ => normal,
     };
+    final lineSpacing = paragraph.style.lineSpacing;
+    return lineSpacing == null
+        ? style
+        : style.copyWith(height: lineSpacing / (style.fontSize ?? 14.6667));
   }
 
   String _bullet(int level) => const ['•', '◦', '▪'][level % 3];
@@ -337,20 +377,8 @@ class _DocxImageView extends StatelessWidget {
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          final requestedWidth = image.width;
-          final width = requestedWidth == null || !constraints.hasBoundedWidth
-              ? requestedWidth
-              : math.min(requestedWidth, constraints.maxWidth);
-          final height =
-              width == null ||
-                  requestedWidth == null ||
-                  requestedWidth == 0 ||
-                  image.height == null
-              ? image.height
-              : image.height! * width / requestedWidth;
-
+      child: Builder(
+        builder: (context) {
           final child = Align(
             alignment: Alignment.centerLeft,
             child: Semantics(
@@ -359,8 +387,8 @@ class _DocxImageView extends StatelessWidget {
               child: Image.memory(
                 image.bytes,
                 key: const ValueKey('docx-image'),
-                width: width,
-                height: height,
+                width: image.width,
+                height: image.height,
                 fit: BoxFit.contain,
                 errorBuilder: (context, error, stackTrace) =>
                     _brokenImage(context),
@@ -405,13 +433,7 @@ class _DocxTableView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final columnCount = table.rows.fold<int>(0, (count, row) {
-      final columns = row.cells.fold<int>(
-        0,
-        (total, cell) => total + cell.columnSpan,
-      );
-      return columns > count ? columns : count;
-    });
+    final columnCount = _tableColumnCount(table);
 
     if (columnCount == 0) {
       return const SizedBox.shrink();
@@ -422,18 +444,36 @@ class _DocxTableView extends StatelessWidget {
       child: Column(
         children: [
           for (var rowIndex = 0; rowIndex < table.rows.length; rowIndex++)
-            _buildRow(context, table.rows[rowIndex], rowIndex, columnCount),
+            _DocxTableRowView(
+              table: table,
+              row: table.rows[rowIndex],
+              rowIndex: rowIndex,
+              columnCount: columnCount,
+              onLinkTap: onLinkTap,
+            ),
         ],
       ),
     );
   }
+}
 
-  Widget _buildRow(
-    BuildContext context,
-    DocxTableRow row,
-    int rowIndex,
-    int columnCount,
-  ) {
+class _DocxTableRowView extends StatelessWidget {
+  final DocxTable table;
+  final DocxTableRow row;
+  final int rowIndex;
+  final int columnCount;
+  final ValueChanged<String>? onLinkTap;
+
+  const _DocxTableRowView({
+    required this.table,
+    required this.row,
+    required this.rowIndex,
+    required this.columnCount,
+    this.onLinkTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
     var columnIndex = 0;
     final children = <Widget>[];
 
@@ -443,7 +483,7 @@ class _DocxTableView extends StatelessWidget {
         children.add(
           Expanded(
             flex: _cellFlex(cell, columnIndex),
-            child: _buildCell(context, cell, rowIndex, cellIndex, row.isHeader),
+            child: _buildCell(context, cell, cellIndex, row.isHeader),
           ),
         );
       }
@@ -457,7 +497,6 @@ class _DocxTableView extends StatelessWidget {
           child: _buildCell(
             context,
             const DocxTableCell(blocks: []),
-            rowIndex,
             row.cells.length,
             false,
           ),
@@ -476,7 +515,6 @@ class _DocxTableView extends StatelessWidget {
   Widget _buildCell(
     BuildContext context,
     DocxTableCell cell,
-    int rowIndex,
     int cellIndex,
     bool isHeader,
   ) {

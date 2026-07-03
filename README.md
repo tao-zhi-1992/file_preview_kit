@@ -16,9 +16,9 @@ V1 focuses on XLSX, CSV, and DOCX preview:
   footnotes, endnotes, comments, text boxes, image descriptions, and VML images
 - Read sheets, rows and cells
 - Preview spreadsheet data in Flutter
-- Preview DOCX files as a continuous document without page layout
+- Preview DOCX files as a continuous, scrollable document
 - Not intended to fully reproduce Microsoft Excel or Word layout
 
 DOCX preview prioritizes complete, readable content over matching Word layout.
-It does not currently reproduce headers, footers, floating-object placement,
-Word pagination, or unsupported platform image codecs such as TIFF and SVG.
+It does not currently reproduce headers, footers, page layout, floating-object
+placement, or unsupported platform image codecs such as TIFF and SVG.
