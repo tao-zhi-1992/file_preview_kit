@@ -823,9 +823,63 @@ class DocxParser {
       type: type,
       level: level,
       number: number,
+      marker: _numberingMarker(state.numbering[numberId]!, counters, level),
       indentStart: indentStart,
       hangingIndent: hangingIndent,
     );
+  }
+
+  String _numberingMarker(
+    Map<int, _NumberingLevel> definitions,
+    Map<int, int> counters,
+    int level,
+  ) {
+    var marker = definitions[level]?.text ?? '%${level + 1}.';
+    for (var index = 0; index <= level; index++) {
+      final value = counters[index];
+      if (value == null) {
+        continue;
+      }
+      marker = marker.replaceAll(
+        '%${index + 1}',
+        _formatNumber(value, definitions[index]?.format),
+      );
+    }
+    return marker;
+  }
+
+  String _formatNumber(int value, String? format) {
+    if (format == 'chineseCounting') {
+      return _chineseCounting(value);
+    }
+    return value.toString();
+  }
+
+  String _chineseCounting(int value) {
+    if (value <= 0 || value > 9999) {
+      return value.toString();
+    }
+    const digits = '零一二三四五六七八九';
+    const units = ['', '十', '百', '千'];
+    const divisors = [1, 10, 100, 1000];
+    final output = StringBuffer();
+    var needsZero = false;
+    for (var power = 3; power >= 0; power--) {
+      final digit = value ~/ divisors[power] % 10;
+      if (digit == 0) {
+        needsZero = output.isNotEmpty && value % divisors[power] != 0;
+        continue;
+      }
+      if (needsZero) {
+        output.write('零');
+        needsZero = false;
+      }
+      if (!(digit == 1 && power == 1 && output.isEmpty)) {
+        output.write(digits[digit]);
+      }
+      output.write(units[power]);
+    }
+    return output.toString();
   }
 
   // -----------------------------------------------------------------------
@@ -1544,6 +1598,8 @@ class DocxParser {
           type: format == 'bullet'
               ? DocxListType.bullet
               : DocxListType.numbered,
+          format: format,
+          text: _attribute(_directChild(levelElement, 'lvlText'), 'val'),
           start: start,
           paragraphStyleId: _attribute(
             _directChild(levelElement, 'pStyle'),
@@ -1849,6 +1905,8 @@ class _ContentTypes {
 
 class _NumberingLevel {
   final DocxListType type;
+  final String? format;
+  final String? text;
   final int start;
   final String? paragraphStyleId;
   final double? indentStart;
@@ -1856,6 +1914,8 @@ class _NumberingLevel {
 
   const _NumberingLevel({
     required this.type,
+    this.format,
+    this.text,
     required this.start,
     this.paragraphStyleId,
     this.indentStart,
@@ -1865,6 +1925,8 @@ class _NumberingLevel {
   _NumberingLevel withStart(int value) {
     return _NumberingLevel(
       type: type,
+      format: format,
+      text: text,
       start: value,
       paragraphStyleId: paragraphStyleId,
       indentStart: indentStart,

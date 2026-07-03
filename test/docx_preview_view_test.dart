@@ -273,8 +273,18 @@ void main() {
           runs: [DocxTextRun(text: 'Nested item')],
         ),
         DocxParagraph(
-          list: DocxListInfo(type: DocxListType.numbered, level: 0, number: 3),
-          runs: [DocxTextRun(text: 'Third item')],
+          list: DocxListInfo(
+            type: DocxListType.numbered,
+            level: 0,
+            number: 10,
+            marker: '十、',
+          ),
+          runs: [
+            DocxTextRun(
+              text: 'Tenth item',
+              style: DocxTextStyle(color: 0xFF365F91),
+            ),
+          ],
         ),
       ],
     );
@@ -287,8 +297,12 @@ void main() {
 
     expect(find.text('◦'), findsOneWidget);
     expect(find.text('Nested item', findRichText: true), findsOneWidget);
-    expect(find.text('3.'), findsOneWidget);
-    expect(find.text('Third item', findRichText: true), findsOneWidget);
+    expect(find.text('十、'), findsOneWidget);
+    expect(find.text('Tenth item', findRichText: true), findsOneWidget);
+    final marker = tester.widget<Text>(find.text('十、'));
+    expect(marker.softWrap, isFalse);
+    expect(marker.style!.color, const Color(0xFF365F91));
+    expect(find.byType(SizedBox), findsWidgets);
     final paragraphPadding = tester
         .widgetList<Padding>(find.byType(Padding))
         .firstWhere((padding) => padding.child is Row);

@@ -122,6 +122,15 @@ class _DocxParagraphView extends StatelessWidget {
         style.hangingIndent ??
         list?.hangingIndent ??
         (list == null ? 0.0 : 24.0);
+    final marker = list == null
+        ? null
+        : list.marker ??
+              (list.type == DocxListType.bullet
+                  ? _bullet(list.level)
+                  : '${list.number ?? 1}.');
+    final markerStyle = paragraph.runs.isEmpty
+        ? baseStyle
+        : baseStyle.merge(_runTextStyle(paragraph.runs.first, null));
     final firstLineIndent = style.firstLineIndent ?? 0;
     final content = RichText(
       textAlign: switch (style.align) {
@@ -156,16 +165,16 @@ class _DocxParagraphView extends StatelessWidget {
           : Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                SizedBox(
-                  width: hangingIndent,
+                ConstrainedBox(
+                  constraints: BoxConstraints(minWidth: hangingIndent),
                   child: Text(
-                    list.type == DocxListType.bullet
-                        ? _bullet(list.level)
-                        : '${list.number ?? 1}.',
+                    marker!,
                     textAlign: TextAlign.right,
-                    style: baseStyle,
+                    softWrap: false,
+                    style: markerStyle,
                   ),
                 ),
+                const SizedBox(width: 8),
                 Expanded(child: content),
               ],
             ),
@@ -275,32 +284,7 @@ InlineSpan _textSpanForRun(
   ValueChanged<String>? onLinkTap,
 ) {
   final target = run.href ?? (run.anchor == null ? null : '#${run.anchor}');
-  final runDecoration = _decoration(run.style);
-  final style = TextStyle(
-    fontWeight: run.style.bold
-        ? FontWeight.bold
-        : run.style.allCaps || run.style.smallCaps
-        ? FontWeight.w500
-        : null,
-    fontStyle: run.style.italic ? FontStyle.italic : null,
-    decoration: target == null
-        ? runDecoration
-        : TextDecoration.combine([
-            runDecoration ?? TextDecoration.none,
-            TextDecoration.underline,
-          ]),
-    fontSize: run.style.fontSize,
-    fontFamily: run.style.fontFamily,
-    color: run.style.color == null
-        ? target == null
-              ? null
-              : Colors.blue
-        : Color(run.style.color!),
-    backgroundColor: run.style.highlightColor == null
-        ? null
-        : Color(run.style.highlightColor!),
-    letterSpacing: run.style.allCaps || run.style.smallCaps ? 1.2 : null,
-  );
+  final style = _runTextStyle(run, target);
   final text = _applyCaps(run.text, run.style);
   final verticalAlignment = run.style.verticalAlignment;
   if ((target != null && onLinkTap != null ||
@@ -338,6 +322,35 @@ InlineSpan _textSpanForRun(
     );
   }
   return TextSpan(text: text, style: style);
+}
+
+TextStyle _runTextStyle(DocxTextRun run, String? target) {
+  final runDecoration = _decoration(run.style);
+  return TextStyle(
+    fontWeight: run.style.bold
+        ? FontWeight.bold
+        : run.style.allCaps || run.style.smallCaps
+        ? FontWeight.w500
+        : null,
+    fontStyle: run.style.italic ? FontStyle.italic : null,
+    decoration: target == null
+        ? runDecoration
+        : TextDecoration.combine([
+            runDecoration ?? TextDecoration.none,
+            TextDecoration.underline,
+          ]),
+    fontSize: run.style.fontSize,
+    fontFamily: run.style.fontFamily,
+    color: run.style.color == null
+        ? target == null
+              ? null
+              : Colors.blue
+        : Color(run.style.color!),
+    backgroundColor: run.style.highlightColor == null
+        ? null
+        : Color(run.style.highlightColor!),
+    letterSpacing: run.style.allCaps || run.style.smallCaps ? 1.2 : null,
+  );
 }
 
 TextDecoration? _decoration(DocxTextStyle textStyle) {

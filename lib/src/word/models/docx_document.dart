@@ -261,6 +261,7 @@ class DocxListInfo {
   final DocxListType type;
   final int level;
   final int? number;
+  final String? marker;
   final double? indentStart;
   final double? hangingIndent;
 
@@ -268,6 +269,7 @@ class DocxListInfo {
     required this.type,
     required this.level,
     this.number,
+    this.marker,
     this.indentStart,
     this.hangingIndent,
   });

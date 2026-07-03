@@ -161,6 +161,41 @@ void main() {
 
     expect(lists.map((list) => list.type), everyElement(DocxListType.numbered));
     expect(lists.map((list) => list.number), [1, 2, 3]);
+    expect(lists.map((list) => list.marker), ['1.', '2.', '3.']);
+  });
+
+  test('formats Chinese counting list markers from numbering metadata', () {
+    final paragraphs = List.generate(
+      11,
+      (index) =>
+          '<w:p><w:pPr><w:numPr><w:ilvl w:val="0"/><w:numId w:val="7"/></w:numPr></w:pPr><w:r><w:t>Heading ${index + 1}</w:t></w:r></w:p>',
+    ).join();
+    final document = parser.parseBytes(
+      _documentBytes(
+        paragraphs,
+        extraParts: {
+          'word/numbering.xml':
+              '''<w:numbering xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:abstractNum w:abstractNumId="1"><w:lvl w:ilvl="0"><w:start w:val="1"/><w:numFmt w:val="chineseCounting"/><w:lvlText w:val="%1、"/></w:lvl></w:abstractNum><w:num w:numId="7"><w:abstractNumId w:val="1"/></w:num></w:numbering>''',
+        },
+      ),
+    );
+    final markers = document.blocks.cast<DocxParagraph>().map(
+      (paragraph) => paragraph.list!.marker,
+    );
+
+    expect(markers, [
+      '一、',
+      '二、',
+      '三、',
+      '四、',
+      '五、',
+      '六、',
+      '七、',
+      '八、',
+      '九、',
+      '十、',
+      '十一、',
+    ]);
   });
 
   test('parses a basic table', () {
@@ -639,6 +674,7 @@ void main() {
 
     expect(list.type, DocxListType.numbered);
     expect(list.number, 3);
+    expect(list.marker, '3.');
   });
 
   test('resolves linked numbering styles and start overrides', () {
