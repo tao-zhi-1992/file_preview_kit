@@ -73,6 +73,7 @@ class DocxParagraphStyle {
   final double? spacingAfter;
   final double? lineHeight;
   final double? lineSpacing;
+  final bool lineSpacingAtLeast;
   final double? indentStart;
   final double? indentEnd;
   final double? firstLineIndent;
@@ -87,6 +88,7 @@ class DocxParagraphStyle {
     this.spacingAfter,
     this.lineHeight,
     this.lineSpacing,
+    this.lineSpacingAtLeast = false,
     this.indentStart,
     this.indentEnd,
     this.firstLineIndent,

@@ -265,6 +265,36 @@ void main() {
     expect(spans[5].style!.fontSize, closeTo(14.6667, 0.001));
   });
 
+  testWidgets('keeps minimum line spacing above the natural line height', (
+    tester,
+  ) async {
+    const document = DocxDocument(
+      blocks: [
+        DocxParagraph(
+          style: DocxParagraphStyle(
+            lineSpacing: 6.6667,
+            lineSpacingAtLeast: true,
+          ),
+          runs: [
+            DocxTextRun(
+              text: 'First line\nSecond line',
+              style: DocxTextStyle(fontSize: 20),
+            ),
+          ],
+        ),
+      ],
+    );
+
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Scaffold(body: DocxPreviewView(document: document)),
+      ),
+    );
+
+    final text = tester.widget<RichText>(find.byType(RichText));
+    expect((text.text as TextSpan).style!.height, 1.15);
+  });
+
   testWidgets('renders bullet and numbered list markers', (tester) async {
     const document = DocxDocument(
       blocks: [

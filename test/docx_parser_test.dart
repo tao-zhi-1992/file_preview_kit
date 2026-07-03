@@ -581,16 +581,21 @@ void main() {
     expect(runs.last.style.bold, isFalse);
   });
 
-  test('distinguishes automatic and exact paragraph line spacing', () {
+  test('distinguishes exact and minimum paragraph line spacing', () {
     final document = parser.parseBytes(
       _documentBytes(
-        '<w:p><w:pPr><w:spacing w:line="360" w:lineRule="exact"/></w:pPr><w:r><w:t>Exact spacing</w:t></w:r></w:p>',
+        '<w:p><w:pPr><w:spacing w:line="360" w:lineRule="exact"/></w:pPr><w:r><w:t>Exact spacing</w:t></w:r></w:p>'
+        '<w:p><w:pPr><w:spacing w:line="100" w:lineRule="atLeast"/></w:pPr><w:r><w:t>Minimum spacing</w:t></w:r></w:p>',
       ),
     );
-    final style = (document.blocks.single as DocxParagraph).style;
+    final exact = (document.blocks.first as DocxParagraph).style;
+    final minimum = (document.blocks.last as DocxParagraph).style;
 
-    expect(style.lineHeight, isNull);
-    expect(style.lineSpacing, 24);
+    expect(exact.lineHeight, isNull);
+    expect(exact.lineSpacing, 24);
+    expect(exact.lineSpacingAtLeast, isFalse);
+    expect(minimum.lineSpacing, closeTo(6.667, 0.001));
+    expect(minimum.lineSpacingAtLeast, isTrue);
   });
 
   test('parses list indentation from numbering levels', () {

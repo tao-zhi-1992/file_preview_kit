@@ -211,9 +211,15 @@ class _DocxParagraphView extends StatelessWidget {
       _ => normal,
     };
     final lineSpacing = paragraph.style.lineSpacing;
-    return lineSpacing == null
-        ? style
-        : style.copyWith(height: lineSpacing / (style.fontSize ?? 14.6667));
+    if (lineSpacing == null) {
+      return style;
+    }
+    final height = lineSpacing / (style.fontSize ?? 14.6667);
+    return style.copyWith(
+      height: paragraph.style.lineSpacingAtLeast
+          ? math.max(style.height ?? 1, height)
+          : height,
+    );
   }
 
   String _bullet(int level) => const ['•', '◦', '▪'][level % 3];

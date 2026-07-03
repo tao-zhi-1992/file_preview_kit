@@ -298,6 +298,7 @@ class DocxParser {
       spacingAfter: spacingAfter,
       lineHeight: lineHeight,
       lineSpacing: lineSpacing,
+      lineSpacingAtLeast: lineRule == 'atLeast',
       indentStart: _twipsToPixels(
         _attribute(indent, 'start') ??
             _attribute(indent, 'left') ??
