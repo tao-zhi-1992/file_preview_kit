@@ -5,11 +5,18 @@ import 'package:flutter/material.dart';
 import '../../core/file_preview_kit_theme.dart';
 import '../models/docx_document.dart';
 
+/// Displays a parsed DOCX document as continuous scrollable content.
 class DocxPreviewView extends StatelessWidget {
+  /// Document to display.
   final DocxDocument document;
+
+  /// Optional theme applied within the preview.
   final ThemeData? theme;
+
+  /// Called when a hyperlink or bookmark is activated.
   final ValueChanged<String>? onLinkTap;
 
+  /// Creates a DOCX preview.
   const DocxPreviewView({
     super.key,
     required this.document,

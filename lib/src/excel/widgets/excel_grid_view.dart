@@ -514,7 +514,13 @@ class _ResizeGripDots extends StatelessWidget {
 
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
-      children: [dot, const SizedBox(width: 3), dot, const SizedBox(width: 3), dot],
+      children: [
+        dot,
+        const SizedBox(width: 3),
+        dot,
+        const SizedBox(width: 3),
+        dot,
+      ],
     );
   }
 }

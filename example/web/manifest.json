@@ -1,11 +1,11 @@
 {
-    "name": "example",
-    "short_name": "example",
+    "name": "File Preview Kit Example",
+    "short_name": "File Preview",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",
     "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "description": "Example application for File Preview Kit.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

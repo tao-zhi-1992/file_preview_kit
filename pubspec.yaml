@@ -1,7 +1,14 @@
 name: file_preview_kit
-description: "A new Flutter package project."
+description: Flutter widgets and parsers for readable XLSX, CSV, and DOCX previews.
 version: 0.0.1
-homepage:
+repository: https://github.com/tao-zhi-1992/file_preview_kit
+issue_tracker: https://github.com/tao-zhi-1992/file_preview_kit/issues
+topics:
+  - flutter
+  - file-preview
+  - xlsx
+  - csv
+  - docx
 
 environment:
   sdk: ^3.10.9
@@ -11,7 +18,7 @@ dependencies:
   flutter:
     sdk: flutter
   archive: ">=3.6.1 <5.0.0"
-  csv: ^6.0.0
+  csv: ^8.0.0
   xml: ^6.5.0
   two_dimensional_scrollables: ^0.5.3
 

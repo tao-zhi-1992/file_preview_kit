@@ -110,7 +110,9 @@ const _symbolFontMap = {
   },
 };
 
+/// Parses DOCX package bytes into a renderable document model.
 class DocxParser {
+  /// Parses [bytes] and returns document content in source order.
   DocxDocument parseBytes(Uint8List bytes) {
     if (bytes.isEmpty) {
       throw const EmptyFileException();

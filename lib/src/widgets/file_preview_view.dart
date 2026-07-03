@@ -15,12 +15,21 @@ import 'preview_error_view.dart';
 import 'preview_loading_view.dart';
 import 'unsupported_file_view.dart';
 
+/// Detects, parses, and previews a supported in-memory file.
 class FilePreviewView extends StatefulWidget {
+  /// File content and format metadata.
   final PreviewSource source;
+
+  /// Optional user-facing text overrides.
   final FilePreviewKitTexts? texts;
+
+  /// Optional theme applied within the preview.
   final ThemeData? theme;
+
+  /// Called when a DOCX hyperlink or bookmark is activated.
   final ValueChanged<String>? onLinkTap;
 
+  /// Creates a unified file preview.
   const FilePreviewView({
     super.key,
     required this.source,

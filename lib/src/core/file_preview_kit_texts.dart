@@ -1,13 +1,26 @@
 import 'dart:ui';
 
+/// User-facing labels and error messages displayed by preview widgets.
 class FilePreviewKitTexts {
+  /// Title shown when preview generation fails.
   final String previewFailedTitle;
+
+  /// Generic message shown for an unknown preview failure.
   final String unableToPreviewMessage;
+
+  /// Title shown for unsupported file formats.
   final String unsupportedFileTitle;
+
+  /// Message shown for unsupported file formats.
   final String unsupportedFileMessage;
+
+  /// Message shown when a workbook contains no sheets.
   final String noSheetsFound;
+
+  /// Message shown when the selected sheet is empty.
   final String emptySheet;
 
+  /// Creates a complete custom text set.
   const FilePreviewKitTexts({
     required this.previewFailedTitle,
     required this.unableToPreviewMessage,
@@ -17,6 +30,7 @@ class FilePreviewKitTexts {
     required this.emptySheet,
   });
 
+  /// Default English text.
   const FilePreviewKitTexts.en()
     : previewFailedTitle = 'Preview failed',
       unableToPreviewMessage = 'Unable to preview this file.',
@@ -25,6 +39,7 @@ class FilePreviewKitTexts {
       noSheetsFound = 'No sheets found',
       emptySheet = 'Empty sheet';
 
+  /// Default Simplified Chinese text.
   const FilePreviewKitTexts.zhHans()
     : previewFailedTitle = '预览失败',
       unableToPreviewMessage = '无法预览此文件。',
@@ -33,6 +48,7 @@ class FilePreviewKitTexts {
       noSheetsFound = '未找到工作表',
       emptySheet = '空工作表';
 
+  /// Resolves built-in text for [locale].
   static FilePreviewKitTexts resolve(Locale locale) {
     if (locale.languageCode.toLowerCase() == 'zh') {
       return const FilePreviewKitTexts.zhHans();

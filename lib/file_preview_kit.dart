@@ -1,5 +1,5 @@
-// ignore: unnecessary_library_name
-library file_preview_kit;
+/// Flutter widgets and parsers for previewing XLSX, CSV, and DOCX files.
+library;
 
 export 'src/core/file_preview_kit_theme.dart';
 export 'src/core/file_preview_kit_texts.dart';

@@ -1,0 +1,11 @@
+AGENTS.md
+tool/
+*.iml
+*.log
+.dart_tool/
+.flutter-plugins-dependencies
+build/
+**/build/
+coverage/
+doc/
+pubspec.lock

@@ -1,9 +1,7 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
-import 'package:csv/csv.dart' show CsvToListConverter;
-import 'package:csv/csv_settings_autodetection.dart'
-    show FirstOccurrenceSettingsDetector;
+import 'package:csv/csv.dart' show Csv;
 
 import '../../core/preview_exception.dart';
 import '../../excel/models/excel_cell.dart';
@@ -11,7 +9,9 @@ import '../../excel/models/excel_cell_type.dart';
 import '../../excel/models/excel_sheet.dart';
 import '../../excel/models/excel_workbook.dart';
 
+/// Parses UTF-8 CSV bytes into an [ExcelWorkbook].
 class CsvParser {
+  /// Parses [bytes] and returns a single-sheet workbook.
   ExcelWorkbook parseBytes(Uint8List bytes) {
     if (bytes.isEmpty) {
       throw const EmptyFileException();
@@ -19,13 +19,7 @@ class CsvParser {
 
     try {
       final text = utf8.decode(bytes).replaceFirst('\ufeff', '');
-      final values = CsvToListConverter(
-        shouldParseNumbers: false,
-        convertEmptyTo: '',
-        csvSettingsDetector: FirstOccurrenceSettingsDetector(
-          eols: ['\r\n', '\n'],
-        ),
-      ).convert<String>(text);
+      final values = Csv(skipEmptyLines: false).decode(text);
       final columnCount = values.fold<int>(
         0,
         (count, row) => row.length > count ? row.length : count,
@@ -36,7 +30,9 @@ class CsvParser {
         final row = values[rowIndex];
         rows.add(
           List.generate(columnCount, (columnIndex) {
-            final value = columnIndex < row.length ? row[columnIndex] : '';
+            final value = columnIndex < row.length
+                ? row[columnIndex] as String
+                : '';
             final address = _cellAddress(rowIndex, columnIndex);
 
             if (value.isEmpty) {

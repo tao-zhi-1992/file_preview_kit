@@ -10,7 +10,9 @@ import '../models/excel_cell_type.dart';
 import '../models/excel_sheet.dart';
 import '../models/excel_workbook.dart';
 
+/// Parses XLSX package bytes into an [ExcelWorkbook].
 class XlsxParser {
+  /// Parses [bytes] and returns worksheets in workbook order.
   ExcelWorkbook parseBytes(Uint8List bytes) {
     if (bytes.isEmpty) {
       throw const EmptyFileException();

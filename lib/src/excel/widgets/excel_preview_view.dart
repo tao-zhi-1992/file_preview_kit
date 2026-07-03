@@ -5,11 +5,18 @@ import '../../core/file_preview_kit_texts.dart';
 import '../models/excel_workbook.dart';
 import 'excel_grid_view.dart';
 
+/// Displays workbook sheets in an interactive spreadsheet grid.
 class ExcelPreviewView extends StatelessWidget {
+  /// Workbook to display.
   final ExcelWorkbook workbook;
+
+  /// Optional user-facing text overrides.
   final FilePreviewKitTexts? texts;
+
+  /// Optional theme applied within the preview.
   final ThemeData? theme;
 
+  /// Creates a workbook preview.
   const ExcelPreviewView({
     super.key,
     required this.workbook,
