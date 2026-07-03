@@ -10,6 +10,25 @@ void main() {
       );
     });
 
+    test('formats built-in time and date-time formats', () {
+      expect(
+        ExcelNumberFormat.format('45292.5', 'm/d/yy h:mm'),
+        '1/1/24 12:00',
+      );
+      expect(
+        ExcelNumberFormat.format('45292.75', 'h:mm:ss'),
+        '18:00:00',
+      );
+      expect(
+        ExcelNumberFormat.format('45292.5', 'h:mm AM/PM'),
+        '12:00 PM',
+      );
+      expect(
+        ExcelNumberFormat.format('45292.75', 'yyyy-mm-dd hh:mm:ss'),
+        '2024-01-01 18:00:00',
+      );
+    });
+
     test('formats built-in percent format', () {
       expect(
         ExcelNumberFormat.format('0.25', '0%'),

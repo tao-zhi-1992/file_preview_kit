@@ -30,6 +30,21 @@ class ExcelNumberFormat {
     49: '@',
   };
 
+  static const _monthNames = [
+    'Jan',
+    'Feb',
+    'Mar',
+    'Apr',
+    'May',
+    'Jun',
+    'Jul',
+    'Aug',
+    'Sep',
+    'Oct',
+    'Nov',
+    'Dec',
+  ];
+
   /// Resolves a format code from [numFmtId] and custom [numFmts].
   static String? resolveFormatCode(
     int numFmtId,
@@ -56,8 +71,8 @@ class ExcelNumberFormat {
       return rawValue;
     }
 
-    if (_isDateFormat(formatCode)) {
-      return _formatDate(value, formatCode);
+    if (_isDateTimeFormat(formatCode)) {
+      return _formatDateTime(value, formatCode);
     }
 
     if (formatCode.contains('%')) {
@@ -75,13 +90,18 @@ class ExcelNumberFormat {
     return rawValue;
   }
 
-  static bool _isDateFormat(String formatCode) {
+  static bool _isDateTimeFormat(String formatCode) {
     final lower = formatCode.toLowerCase();
     return lower.contains('y') ||
         lower.contains('d') ||
         lower.contains('h') ||
         lower.contains('s') ||
-        lower.contains('m');
+        lower.contains('am/pm') ||
+        _containsMinuteToken(lower);
+  }
+
+  static bool _containsMinuteToken(String lower) {
+    return lower.contains('mm') || lower.contains('m:');
   }
 
   static bool _isIntegerFormat(String formatCode) {
@@ -90,58 +110,243 @@ class ExcelNumberFormat {
         (formatCode.contains('0') || formatCode.contains('#'));
   }
 
-  static DateTime _excelDate(double serial) {
-    // Excel 1900 date system: serial 1 is 1900-01-01.
-    return DateTime(1899, 12, 30).add(Duration(days: serial.round()));
+  static DateTime _excelDateTime(double serial) {
+    const millisecondsPerDay = 24 * 60 * 60 * 1000;
+    final totalMilliseconds = (serial * millisecondsPerDay).round();
+    return DateTime(1899, 12, 30).add(
+      Duration(milliseconds: totalMilliseconds),
+    );
   }
 
-  static String _formatDate(double serial, String formatCode) {
-    final date = _excelDate(serial);
-    final lower = formatCode.toLowerCase();
+  static String _formatDateTime(double serial, String formatCode) {
+    final normalized = formatCode.trim();
+    final lower = normalized.toLowerCase();
+    final dateTime = _excelDateTime(serial);
+
+    if (lower == 'mm:ss') {
+      return _formatDurationMmSs(serial);
+    }
+
+    if (lower == '[h]:mm:ss') {
+      return _formatElapsedHms(serial);
+    }
+
+    final spaceIndex = normalized.indexOf(' ');
+    if (spaceIndex > 0) {
+      final dateFormat = normalized.substring(0, spaceIndex);
+      final timeFormat = normalized.substring(spaceIndex + 1);
+      if (_hasDateTokens(dateFormat) &&
+          _hasTimeTokens(timeFormat) &&
+          !_isAmPmSuffix(timeFormat)) {
+        return '${_formatDatePart(dateTime, dateFormat)} '
+            '${_formatTimePart(dateTime, timeFormat)}';
+      }
+    }
+
+    if (_isTimeOnlyFormat(lower)) {
+      return _formatTimePart(dateTime, normalized);
+    }
+
+    if (_hasTimeTokens(normalized)) {
+      return _formatDateTimeTokens(dateTime, normalized);
+    }
+
+    return _formatDatePart(dateTime, normalized);
+  }
+
+  static bool _hasTimeTokens(String format) {
+    final lower = format.toLowerCase();
+    return lower.contains('h') ||
+        lower.contains('s') ||
+        lower.contains('am/pm') ||
+        _containsMinuteToken(lower);
+  }
+
+  static bool _isTimeOnlyFormat(String lower) {
+    return (lower.contains('h') || lower.contains('am/pm')) &&
+        !lower.contains('y') &&
+        !lower.contains('d');
+  }
+
+  static bool _hasDateTokens(String format) {
+    final lower = format.toLowerCase();
+    return lower.contains('y') ||
+        lower.contains('d') ||
+        lower.contains('m/d') ||
+        lower.contains('mmm');
+  }
+
+  static bool _isAmPmSuffix(String format) {
+    return format.toLowerCase().trim() == 'am/pm';
+  }
+
+  static String _formatDateTimeTokens(DateTime dateTime, String format) {
+    final lower = format.toLowerCase();
+    final buffer = StringBuffer();
+    var index = 0;
+
+    while (index < format.length) {
+      final remaining = format.substring(index);
+      final lowerRemaining = lower.substring(index);
+
+      if (lowerRemaining.startsWith('yyyy')) {
+        buffer.write(dateTime.year.toString().padLeft(4, '0'));
+        index += 4;
+        continue;
+      }
+
+      if (lowerRemaining.startsWith('yy')) {
+        buffer.write((dateTime.year % 100).toString().padLeft(2, '0'));
+        index += 2;
+        continue;
+      }
+
+      if (lowerRemaining.startsWith('mmm')) {
+        buffer.write(_monthNames[dateTime.month - 1]);
+        index += 3;
+        continue;
+      }
+
+      if (lowerRemaining.startsWith('mm')) {
+        buffer.write(dateTime.month.toString().padLeft(2, '0'));
+        index += 2;
+        continue;
+      }
+
+      if (lowerRemaining.startsWith('dd')) {
+        buffer.write(dateTime.day.toString().padLeft(2, '0'));
+        index += 2;
+        continue;
+      }
+
+      if (lowerRemaining.startsWith('hh')) {
+        buffer.write(dateTime.hour.toString().padLeft(2, '0'));
+        index += 2;
+        continue;
+      }
+
+      if (lowerRemaining.startsWith('h')) {
+        buffer.write(dateTime.hour.toString());
+        index += 1;
+        continue;
+      }
+
+      if (lowerRemaining.startsWith('ss')) {
+        buffer.write(dateTime.second.toString().padLeft(2, '0'));
+        index += 2;
+        continue;
+      }
+
+      if (lowerRemaining.startsWith('am/pm')) {
+        buffer.write(dateTime.hour >= 12 ? 'PM' : 'AM');
+        index += 5;
+        continue;
+      }
+
+      if (lowerRemaining.startsWith('m')) {
+        buffer.write(dateTime.minute.toString());
+        index += 1;
+        continue;
+      }
+
+      if (lowerRemaining.startsWith('d')) {
+        buffer.write(dateTime.day.toString());
+        index += 1;
+        continue;
+      }
+
+      buffer.write(format[index]);
+      index += 1;
+    }
+
+    return buffer.toString();
+  }
+
+  static String _formatDatePart(DateTime dateTime, String format) {
+    final lower = format.toLowerCase();
 
     if (lower == 'm/d/yy') {
-      final year = date.year % 100;
-      return '${date.month}/${date.day}/$year';
+      final year = dateTime.year % 100;
+      return '${dateTime.month}/${dateTime.day}/$year';
     }
 
     if (lower == 'yyyy-mm-dd' || lower == 'yyyy/m/d') {
-      final month = date.month.toString().padLeft(2, '0');
-      final day = date.day.toString().padLeft(2, '0');
-      return '${date.year}-$month-$day';
+      final month = dateTime.month.toString().padLeft(2, '0');
+      final day = dateTime.day.toString().padLeft(2, '0');
+      return '${dateTime.year}-$month-$day';
     }
 
-    if (lower.contains('yyyy') && lower.contains('mm') && lower.contains('dd')) {
-      final month = date.month.toString().padLeft(2, '0');
-      final day = date.day.toString().padLeft(2, '0');
-      return '${date.year}-$month-$day';
+    if (lower.contains('yyyy') &&
+        lower.contains('mm') &&
+        lower.contains('dd')) {
+      final month = dateTime.month.toString().padLeft(2, '0');
+      final day = dateTime.day.toString().padLeft(2, '0');
+      return '${dateTime.year}-$month-$day';
     }
 
     if (lower == 'd-mmm-yy' || lower == 'd-mmm') {
-      const months = [
-        'Jan',
-        'Feb',
-        'Mar',
-        'Apr',
-        'May',
-        'Jun',
-        'Jul',
-        'Aug',
-        'Sep',
-        'Oct',
-        'Nov',
-        'Dec',
-      ];
-      final monthName = months[date.month - 1];
+      final monthName = _monthNames[dateTime.month - 1];
       if (lower == 'd-mmm') {
-        return '${date.day}-$monthName';
+        return '${dateTime.day}-$monthName';
       }
-      final year = date.year % 100;
-      return '${date.day}-$monthName-$year';
+      final year = dateTime.year % 100;
+      return '${dateTime.day}-$monthName-$year';
     }
 
-    final month = date.month.toString().padLeft(2, '0');
-    final day = date.day.toString().padLeft(2, '0');
-    return '${date.year}-$month-$day';
+    if (_hasTimeTokens(format)) {
+      return _formatDateTimeTokens(dateTime, format);
+    }
+
+    final month = dateTime.month.toString().padLeft(2, '0');
+    final day = dateTime.day.toString().padLeft(2, '0');
+    return '${dateTime.year}-$month-$day';
+  }
+
+  static String _formatTimePart(DateTime dateTime, String format) {
+    final lower = format.toLowerCase();
+    final useAmPm = lower.contains('am/pm');
+    final showSeconds = lower.contains('ss');
+    final padHour = lower.contains('hh');
+
+    var hour = dateTime.hour;
+    var suffix = '';
+
+    if (useAmPm) {
+      suffix = hour >= 12 ? ' PM' : ' AM';
+      hour = hour % 12;
+      if (hour == 0) {
+        hour = 12;
+      }
+    }
+
+    final hourText = padHour ? hour.toString().padLeft(2, '0') : '$hour';
+    final minute = dateTime.minute.toString().padLeft(2, '0');
+
+    if (!showSeconds) {
+      return '$hourText:$minute$suffix';
+    }
+
+    final second = dateTime.second.toString().padLeft(2, '0');
+    return '$hourText:$minute:$second$suffix';
+  }
+
+  static String _formatDurationMmSs(double serial) {
+    final fraction = serial - serial.floor();
+    final totalSeconds = (fraction * 24 * 60 * 60).round();
+    final minutes = (totalSeconds ~/ 60) % 60;
+    final seconds = totalSeconds % 60;
+    return '${minutes.toString().padLeft(2, '0')}:'
+        '${seconds.toString().padLeft(2, '0')}';
+  }
+
+  static String _formatElapsedHms(double serial) {
+    final fraction = serial - serial.floor();
+    final totalSeconds = (fraction * 24 * 60 * 60).round();
+    final hours = totalSeconds ~/ 3600;
+    final minutes = (totalSeconds % 3600) ~/ 60;
+    final seconds = totalSeconds % 60;
+    return '$hours:${minutes.toString().padLeft(2, '0')}:'
+        '${seconds.toString().padLeft(2, '0')}';
   }
 
   static String _formatPercent(double value, String formatCode) {

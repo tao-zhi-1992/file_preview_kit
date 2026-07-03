@@ -81,6 +81,7 @@ void main() {
     expect(style.strikethrough, isTrue);
     expect(style.fontFamily, 'Calibri');
     expect(style.borders.left?.color, const Color(0xFF0000FF));
+    expect(style.borders.left?.width, 0.5);
     expect(result.numberFormats.single, 'm/d/yy');
   });
 

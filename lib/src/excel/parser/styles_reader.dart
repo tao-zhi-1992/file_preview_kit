@@ -219,11 +219,12 @@ class StylesReader {
 
   double _borderWidth(String style) {
     return switch (style) {
-      'thin' => 1,
-      'medium' => 1.5,
-      'thick' => 2,
-      'double' => 2,
-      _ => 1,
+      'hair' => 0.25,
+      'thin' => 0.5,
+      'medium' => 1,
+      'thick' => 1.5,
+      'double' => 1,
+      _ => 0.5,
     };
   }
 

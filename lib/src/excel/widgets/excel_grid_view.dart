@@ -4,8 +4,10 @@ import 'package:flutter/material.dart';
 import 'package:two_dimensional_scrollables/two_dimensional_scrollables.dart';
 
 import '../../core/file_preview_kit_texts.dart';
+import '../models/excel_cell_borders.dart';
 import '../models/excel_cell_style.dart';
 import '../models/excel_sheet.dart';
+import '../parser/excel_border_resolver.dart';
 
 const _minimumColumnWidth = 48.0;
 const _minimumRowHeight = 24.0;
@@ -200,6 +202,13 @@ class _ExcelGridViewState extends State<ExcelGridView>
             ? null
             : mergeRegion.startColumn + 1;
 
+        final displayBorders = ExcelBorderResolver.resolve(
+          widget.sheet,
+          rowIndex: originRow,
+          columnIndex: originColumn,
+          mergeRegion: mergeRegion,
+        );
+
         return TableViewCell(
           rowMergeStart:
               mergeRegion != null && mergeRegion.rowSpan > 1 ? tableMergeRow : null,
@@ -219,6 +228,7 @@ class _ExcelGridViewState extends State<ExcelGridView>
             key: ValueKey('excel-cell-$originRow-$originColumn'),
             text: cell?.displayValue ?? '',
             style: cell?.style ?? ExcelCellStyle.empty,
+            borders: displayBorders,
             selected: selected,
             highlighted: highlighted,
             onTap: () => _selectCell(rowIndex, columnIndex),
@@ -567,6 +577,7 @@ class _ResizeGripDots extends StatelessWidget {
 class _BodyCell extends StatelessWidget {
   final String text;
   final ExcelCellStyle style;
+  final ExcelCellBorders borders;
   final bool selected;
   final bool highlighted;
   final VoidCallback onTap;
@@ -575,6 +586,7 @@ class _BodyCell extends StatelessWidget {
     super.key,
     required this.text,
     required this.style,
+    required this.borders,
     required this.selected,
     required this.highlighted,
     required this.onTap,
@@ -605,7 +617,7 @@ class _BodyCell extends StatelessWidget {
             decoration: BoxDecoration(
               border: selected
                   ? Border.all(color: theme.colorScheme.primary, width: 1.5)
-                  : style.borders.toBorder(),
+                  : borders.toBorder(),
             ),
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
