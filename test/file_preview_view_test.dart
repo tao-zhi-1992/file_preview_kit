@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -31,6 +32,23 @@ void main() {
       find.byKey(const ValueKey('sheet-tab-dot-0')),
     );
     expect((dot.decoration as BoxDecoration).color, Colors.black);
+  });
+
+  testWidgets('previews csv bytes', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: FilePreviewView(
+          source: PreviewSource.bytes(
+            Uint8List.fromList(utf8.encode('Code,Value\n00123,Sample')),
+            fileName: 'sample.csv',
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('00123'), findsOneWidget);
+    expect(find.text('Sample'), findsOneWidget);
   });
 
   testWidgets('updates an explicitly provided theme', (tester) async {

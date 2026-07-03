@@ -6,6 +6,7 @@ export 'src/core/file_preview_kit_texts.dart';
 export 'src/core/preview_exception.dart';
 export 'src/core/preview_source.dart';
 export 'src/core/preview_type.dart';
+export 'src/csv/parser/csv_parser.dart';
 export 'src/excel/models/excel_cell.dart';
 export 'src/excel/models/excel_cell_type.dart';
 export 'src/excel/models/excel_sheet.dart';

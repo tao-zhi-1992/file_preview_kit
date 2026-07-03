@@ -6,8 +6,8 @@ void main() {
   testWidgets('shows the file picker action', (tester) async {
     await tester.pumpWidget(const ExampleApp());
 
-    expect(find.text('Choose XLSX file'), findsOneWidget);
-    final context = tester.element(find.text('Choose XLSX file'));
+    expect(find.text('Choose XLSX or CSV file'), findsOneWidget);
+    final context = tester.element(find.text('Choose XLSX or CSV file'));
     expect(Theme.of(context).colorScheme.primary, Colors.black);
   });
 }
