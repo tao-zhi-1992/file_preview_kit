@@ -1,3 +1,10 @@
+## Unreleased
+
+- XLSX cell styles including fonts, fills, borders, alignment, wrap text, underline, and strikethrough.
+- XLSX number and date formatting via `numFmt`.
+- XLSX column widths loaded from workbook metadata.
+- XLSX merged cell rendering in the grid.
+
 ## 0.0.1
 
 - Initial release of file_preview_kit.

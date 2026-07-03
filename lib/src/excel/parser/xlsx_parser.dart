@@ -8,8 +8,13 @@ import '../../core/preview_exception.dart';
 import '../models/excel_cell.dart';
 import '../models/excel_cell_style.dart';
 import '../models/excel_cell_type.dart';
+import '../models/excel_merge_region.dart';
 import '../models/excel_sheet.dart';
+import '../models/excel_styles_parse_result.dart';
 import '../models/excel_workbook.dart';
+import 'excel_column_width.dart';
+import 'excel_number_format.dart';
+import 'excel_theme_colors.dart';
 import 'styles_reader.dart';
 
 /// Parses XLSX package bytes into an [ExcelWorkbook].
@@ -36,15 +41,6 @@ class XlsxParser {
           ? <String>[]
           : _parseSharedStrings(sharedStringsXml);
 
-      final stylesXml = _readArchiveText(
-        archive,
-        'xl/styles.xml',
-      );
-
-      final styles = stylesXml == null
-          ? <ExcelCellStyle>[]
-          : StylesReader().parse(stylesXml);
-
       final workbookXml = _readArchiveText(archive, 'xl/workbook.xml');
       final relationshipsXml = _readArchiveText(
         archive,
@@ -54,6 +50,18 @@ class XlsxParser {
       if (workbookXml == null || relationshipsXml == null) {
         throw const InvalidXlsxException();
       }
+
+      final themeXml = _readThemeXml(archive, relationshipsXml);
+      final themeColors = ExcelThemeColors.parse(themeXml);
+
+      final stylesXml = _readArchiveText(
+        archive,
+        'xl/styles.xml',
+      );
+
+      final stylesResult = stylesXml == null
+          ? ExcelStylesParseResult.empty
+          : StylesReader().parse(stylesXml, themeColors: themeColors);
 
       final sheetInfos = _parseWorkbookSheets(workbookXml);
       final relationshipMap = _parseWorkbookRelationships(relationshipsXml);
@@ -77,7 +85,7 @@ class XlsxParser {
             sheetXml,
             sheetName: sheetInfo.name,
             sharedStrings: sharedStrings,
-            styles: styles,
+            stylesResult: stylesResult,
           ),
         );
       }
@@ -190,13 +198,39 @@ class XlsxParser {
     return 'xl/$target';
   }
 
+  String? _readThemeXml(Archive archive, String relationshipsXml) {
+    final document = XmlDocument.parse(relationshipsXml);
+
+    for (final relationshipElement in document.findAllElements(
+      'Relationship',
+    )) {
+      final type = relationshipElement.getAttribute('Type') ?? '';
+      if (!type.endsWith('/theme')) {
+        continue;
+      }
+
+      final target = relationshipElement.getAttribute('Target');
+      if (target == null) {
+        continue;
+      }
+
+      final path = _normalizeWorkbookTargetPath(target);
+      return _readArchiveText(archive, path);
+    }
+
+    return _readArchiveText(archive, 'xl/theme/theme1.xml');
+  }
+
   ExcelSheet _parseWorksheet(
     String xmlText, {
     required String sheetName,
     required List<String> sharedStrings,
-    required List<ExcelCellStyle> styles,
+    required ExcelStylesParseResult stylesResult,
   }) {
     final document = XmlDocument.parse(xmlText);
+
+    final columnWidths = _parseColumnWidths(document);
+    final mergeRegions = _parseMergeRegions(document);
 
     final rowMap = <int, List<ExcelCell>>{};
     var maxColumnCount = 0;
@@ -238,7 +272,7 @@ class XlsxParser {
               ? _cellAddress(rowIndex, columnIndex)
               : address,
           sharedStrings: sharedStrings,
-          styles: styles,
+          stylesResult: stylesResult,
         );
 
         rowCells.add(cell);
@@ -290,7 +324,61 @@ class XlsxParser {
       rowCount: rows.length,
       columnCount: maxColumnCount,
       rows: rows,
+      columnWidths: columnWidths,
+      mergeRegions: mergeRegions,
     );
+  }
+
+  Map<int, double> _parseColumnWidths(XmlDocument document) {
+    final result = <int, double>{};
+
+    for (final col in document.findAllElements('col')) {
+      final min = int.tryParse(col.getAttribute('min') ?? '') ?? 0;
+      final max = int.tryParse(col.getAttribute('max') ?? '') ?? min;
+      final width = double.tryParse(col.getAttribute('width') ?? '');
+      if (width == null) {
+        continue;
+      }
+
+      final pixels = excelColumnWidthToPixels(width);
+      for (var column = min; column <= max; column++) {
+        result[column - 1] = pixels;
+      }
+    }
+
+    return result;
+  }
+
+  List<ExcelMergeRegion> _parseMergeRegions(XmlDocument document) {
+    final result = <ExcelMergeRegion>[];
+
+    for (final mergeCell in document.findAllElements('mergeCell')) {
+      final ref = mergeCell.getAttribute('ref');
+      if (ref == null || !ref.contains(':')) {
+        continue;
+      }
+
+      final parts = ref.split(':');
+      if (parts.length != 2) {
+        continue;
+      }
+
+      final startRow = _rowIndexFromCellRef(parts[0]);
+      final startColumn = _columnIndexFromCellRef(parts[0]);
+      final endRow = _rowIndexFromCellRef(parts[1]);
+      final endColumn = _columnIndexFromCellRef(parts[1]);
+
+      result.add(
+        ExcelMergeRegion(
+          startRow: startRow,
+          startColumn: startColumn,
+          endRow: endRow,
+          endColumn: endColumn,
+        ),
+      );
+    }
+
+    return result;
   }
 
   List<ExcelCell> _blankRow({required int rowIndex, required int columnCount}) {
@@ -309,7 +397,7 @@ class XlsxParser {
     required int columnIndex,
     required String address,
     required List<String> sharedStrings,
-    required List<ExcelCellStyle> styles,
+    required ExcelStylesParseResult stylesResult,
   }) {
     final type = cellElement.getAttribute('t');
     final valueElements = cellElement.findElements('v');
@@ -317,9 +405,17 @@ class XlsxParser {
 
     final styleIndex = int.tryParse(cellElement.getAttribute('s') ?? '');
     final style =
-        styleIndex != null && styleIndex >= 0 && styleIndex < styles.length
-        ? styles[styleIndex]
+        styleIndex != null &&
+            styleIndex >= 0 &&
+            styleIndex < stylesResult.styles.length
+        ? stylesResult.styles[styleIndex]
         : ExcelCellStyle.empty;
+    final numberFormat =
+        styleIndex != null &&
+            styleIndex >= 0 &&
+            styleIndex < stylesResult.numberFormats.length
+        ? stylesResult.numberFormats[styleIndex]
+        : null;
 
     if (type == 's') {
       final index = int.tryParse(rawValue);
@@ -388,7 +484,7 @@ class XlsxParser {
       columnIndex: columnIndex,
       address: address,
       rawValue: rawValue,
-      displayValue: rawValue,
+      displayValue: ExcelNumberFormat.format(rawValue, numberFormat),
       type: rawValue.isEmpty ? ExcelCellType.blank : ExcelCellType.number,
       style: style,
     );

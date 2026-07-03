@@ -48,12 +48,25 @@ class _ExcelGridViewState extends State<ExcelGridView>
   bool get wantKeepAlive => true;
 
   @override
+  void initState() {
+    super.initState();
+    _seedColumnWidths();
+  }
+
+  void _seedColumnWidths() {
+    for (final entry in widget.sheet.columnWidths.entries) {
+      _columnWidths.putIfAbsent(entry.key, () => entry.value);
+    }
+  }
+
+  @override
   void didUpdateWidget(covariant ExcelGridView oldWidget) {
     super.didUpdateWidget(oldWidget);
 
     if (!identical(oldWidget.sheet, widget.sheet)) {
       _columnWidths.clear();
       _rowHeights.clear();
+      _seedColumnWidths();
       _selection = null;
       _clearResizeState();
     }
@@ -170,16 +183,40 @@ class _ExcelGridViewState extends State<ExcelGridView>
 
         final rowIndex = row - 1;
         final columnIndex = column - 1;
-        final cell = widget.sheet.cellAt(rowIndex, columnIndex);
+        final mergeRegion = widget.sheet.mergeRegionAt(rowIndex, columnIndex);
+        final originRow = mergeRegion?.startRow ?? rowIndex;
+        final originColumn = mergeRegion?.startColumn ?? columnIndex;
+        final cell = widget.sheet.cellAt(originRow, originColumn);
         final selected = _selection?.isCell(rowIndex, columnIndex) ?? false;
         final highlighted =
             selected ||
             (_selection?.isRow(rowIndex) ?? false) ||
             (_selection?.isColumn(columnIndex) ?? false);
 
+        final tableMergeRow = mergeRegion == null
+            ? null
+            : mergeRegion.startRow + 1;
+        final tableMergeColumn = mergeRegion == null
+            ? null
+            : mergeRegion.startColumn + 1;
+
         return TableViewCell(
+          rowMergeStart:
+              mergeRegion != null && mergeRegion.rowSpan > 1 ? tableMergeRow : null,
+          rowMergeSpan:
+              mergeRegion != null && mergeRegion.rowSpan > 1
+              ? mergeRegion.rowSpan
+              : null,
+          columnMergeStart:
+              mergeRegion != null && mergeRegion.columnSpan > 1
+              ? tableMergeColumn
+              : null,
+          columnMergeSpan:
+              mergeRegion != null && mergeRegion.columnSpan > 1
+              ? mergeRegion.columnSpan
+              : null,
           child: _BodyCell(
-            key: ValueKey('excel-cell-$rowIndex-$columnIndex'),
+            key: ValueKey('excel-cell-$originRow-$originColumn'),
             text: cell?.displayValue ?? '',
             style: cell?.style ?? ExcelCellStyle.empty,
             selected: selected,
@@ -568,23 +605,26 @@ class _BodyCell extends StatelessWidget {
             decoration: BoxDecoration(
               border: selected
                   ? Border.all(color: theme.colorScheme.primary, width: 1.5)
-                  : null,
+                  : style.borders.toBorder(),
             ),
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 8),
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
               child: Align(
-                alignment: Alignment.centerLeft,
+                alignment: style.alignment,
                 child: Text(
                   text,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
+                  maxLines: style.wrapText ? null : 1,
+                  overflow:
+                      style.wrapText ? TextOverflow.visible : TextOverflow.ellipsis,
                   style: theme.textTheme.bodySmall?.copyWith(
                     fontWeight:
                         style.bold ? FontWeight.w600 : FontWeight.normal,
                     fontStyle:
                         style.italic ? FontStyle.italic : FontStyle.normal,
                     fontSize: style.fontSize,
+                    fontFamily: style.fontFamily,
                     color: style.fontColor,
+                    decoration: _textDecoration(style),
                   ),
                 ),
               ),
@@ -594,4 +634,17 @@ class _BodyCell extends StatelessWidget {
       ),
     );
   }
+}
+
+TextDecoration? _textDecoration(ExcelCellStyle style) {
+  final decorations = <TextDecoration>[
+    if (style.underline) TextDecoration.underline,
+    if (style.strikethrough) TextDecoration.lineThrough,
+  ];
+
+  if (decorations.isEmpty) {
+    return null;
+  }
+
+  return TextDecoration.combine(decorations);
 }

@@ -72,6 +72,8 @@ void main() {
       expect(sheet.cellAt(0, 0)?.displayValue, 'Customer Info');
       expect(sheet.cellAt(0, 1)?.displayValue, '');
       expect(sheet.cellAt(0, 2)?.displayValue, '');
+      expect(sheet.mergeRegions, hasLength(1));
+      expect(sheet.mergeRegions.single.columnSpan, 3);
       expect(sheet.cellAt(1, 0)?.displayValue, 'Name');
       expect(sheet.cellAt(2, 0)?.displayValue, 'Sample User');
     });
@@ -79,8 +81,8 @@ void main() {
     test('08 date number', () {
       final sheet = readWorkbook('08_date_number.xlsx').firstSheet!;
 
-      expect(sheet.cellAt(1, 0)?.displayValue, isNotEmpty);
-      expect(sheet.cellAt(2, 0)?.displayValue, isNotEmpty);
+      expect(sheet.cellAt(1, 0)?.displayValue, '1/1/24');
+      expect(sheet.cellAt(2, 0)?.displayValue, '12/31/24');
     });
 
     test('09 unicode and special text', () {

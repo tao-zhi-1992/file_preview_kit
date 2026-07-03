@@ -10,3 +10,10 @@
 - Any change to parsers, models, or UI behavior must include tests in the same task.
 - Do not mark work complete until `flutter test` passes.
 - See [docs/testing.md](docs/testing.md) for layout and examples.
+
+## Versioning
+
+- Published vs in-development versions are tracked in [docs/release.md](docs/release.md).
+- Record unreleased changes under `CHANGELOG.md` → `Unreleased` only.
+- Do not edit released version sections in `CHANGELOG.md`.
+- Check the latest git tag (if any) before assuming a version is already published.

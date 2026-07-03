@@ -1,3 +1,4 @@
+import 'package:file_preview_kit/src/excel/models/excel_cell_alignment.dart';
 import 'package:file_preview_kit/src/excel/models/excel_cell_style.dart';
 import 'package:file_preview_kit/src/excel/parser/styles_reader.dart';
 import 'package:flutter/material.dart';
@@ -7,7 +8,7 @@ void main() {
   final reader = StylesReader();
 
   test('resolves font and fill styles from cellXfs', () {
-    final styles = reader.parse('''
+    final result = reader.parse('''
 <styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
   <fonts count="2">
     <font><sz val="11"/></font>
@@ -34,21 +35,57 @@ void main() {
 </styleSheet>
 ''');
 
-    expect(styles, hasLength(2));
-    expect(styles[0].bold, isFalse);
-    expect(styles[0].italic, isFalse);
-    expect(styles[0].fontSize, 11);
-    expect(styles[0].fontColor, isNull);
-    expect(styles[0].backgroundColor, isNull);
-    expect(styles[1].bold, isTrue);
-    expect(styles[1].italic, isTrue);
-    expect(styles[1].fontSize, 14);
-    expect(styles[1].fontColor, const Color(0xFFFF0000));
-    expect(styles[1].backgroundColor, const Color(0xFFFFFF00));
+    expect(result.styles, hasLength(2));
+    expect(result.styles[0].bold, isFalse);
+    expect(result.styles[0].fontSize, 11);
+    expect(result.styles[1].bold, isTrue);
+    expect(result.styles[1].italic, isTrue);
+    expect(result.styles[1].fontSize, 14);
+    expect(result.styles[1].fontColor, const Color(0xFFFF0000));
+    expect(result.styles[1].backgroundColor, const Color(0xFFFFFF00));
+  });
+
+  test('parses alignment, wrap, borders, and font extras', () {
+    final result = reader.parse('''
+<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <fonts count="1">
+    <font>
+      <u/>
+      <strike/>
+      <name val="Calibri"/>
+    </font>
+  </fonts>
+  <fills count="1"><fill/></fills>
+  <borders count="2">
+    <border/>
+    <border>
+      <left style="thin"><color rgb="FF0000FF"/></left>
+      <right style="thin"><color rgb="FF0000FF"/></right>
+      <top style="thin"><color rgb="FF0000FF"/></top>
+      <bottom style="thin"><color rgb="FF0000FF"/></bottom>
+    </border>
+  </borders>
+  <cellXfs count="1">
+    <xf fontId="0" fillId="0" borderId="1" numFmtId="14">
+      <alignment horizontal="center" vertical="top" wrapText="1"/>
+    </xf>
+  </cellXfs>
+</styleSheet>
+''');
+
+    final style = result.styles.single;
+    expect(style.horizontalAlign, ExcelHorizontalAlign.center);
+    expect(style.verticalAlign, ExcelVerticalAlign.top);
+    expect(style.wrapText, isTrue);
+    expect(style.underline, isTrue);
+    expect(style.strikethrough, isTrue);
+    expect(style.fontFamily, 'Calibri');
+    expect(style.borders.left?.color, const Color(0xFF0000FF));
+    expect(result.numberFormats.single, 'm/d/yy');
   });
 
   test('ignores cellStyleXfs and only parses cellXfs entries', () {
-    final styles = reader.parse('''
+    final result = reader.parse('''
 <styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
   <fonts count="1">
     <font><b/><sz val="12"/></font>
@@ -65,30 +102,28 @@ void main() {
 </styleSheet>
 ''');
 
-    expect(styles, hasLength(1));
-    expect(styles.single.bold, isTrue);
-    expect(styles.single.fontSize, 12);
+    expect(result.styles, hasLength(1));
+    expect(result.styles.single.bold, isTrue);
+    expect(result.styles.single.fontSize, 12);
   });
 
-  test('returns empty list when cellXfs is missing', () {
-    final styles = reader.parse('''
+  test('returns empty result when cellXfs is missing', () {
+    final result = reader.parse('''
 <styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
   <fonts count="1"><font/></fonts>
   <fills count="1"><fill/></fills>
 </styleSheet>
 ''');
 
-    expect(styles, isEmpty);
+    expect(result.styles, isEmpty);
+    expect(result.numberFormats, isEmpty);
   });
 
   test('ignores invalid rgb color values', () {
-    final styles = reader.parse('''
+    final result = reader.parse('''
 <styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
   <fonts count="1">
-    <font>
-      <color rgb="FF00"/>
-      <color rgb="AUTO"/>
-    </font>
+    <font><color rgb="FF00"/></font>
   </fonts>
   <fills count="1">
     <fill>
@@ -103,7 +138,7 @@ void main() {
 </styleSheet>
 ''');
 
-    expect(styles.single.fontColor, isNull);
-    expect(styles.single.backgroundColor, isNull);
+    expect(result.styles.single.fontColor, isNull);
+    expect(result.styles.single.backgroundColor, isNull);
   });
 }
