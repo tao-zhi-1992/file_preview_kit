@@ -74,6 +74,7 @@ class DocxParser {
           : _directChild(paragraphProperties, 'pStyle'),
       'val',
     );
+    final kind = _parseBuiltinKind(styleId);
     final justification = paragraphProperties == null
         ? null
         : _directChild(paragraphProperties, 'jc');
@@ -84,6 +85,14 @@ class DocxParser {
     final spacingBefore = _twipsToPixels(_attribute(spacing, 'before'));
     final spacingAfter = _twipsToPixels(_attribute(spacing, 'after'));
     final lineHeight = _lineHeight(_attribute(spacing, 'line'));
+    final paragraphStyle = DocxParagraphStyle(
+      styleId: styleId,
+      kind: kind,
+      align: alignment,
+      spacingBefore: spacingBefore,
+      spacingAfter: spacingAfter,
+      lineHeight: lineHeight,
+    );
     var list = _parseList(paragraphProperties, state);
     final blocks = <DocxBlock>[];
     final runs = <DocxTextRun>[];
@@ -94,15 +103,7 @@ class DocxParser {
       }
 
       blocks.add(
-        DocxParagraph(
-          runs: List.of(runs),
-          alignment: alignment,
-          styleId: styleId,
-          list: list,
-          spacingBefore: spacingBefore,
-          spacingAfter: spacingAfter,
-          lineHeight: lineHeight,
-        ),
+        DocxParagraph(runs: List.of(runs), style: paragraphStyle, list: list),
       );
       runs.clear();
       list = null;
@@ -110,26 +111,28 @@ class DocxParser {
 
     for (final run in _wordRuns(paragraph)) {
       final properties = _directChild(run, 'rPr');
-      final bold = _isEnabled(properties, 'b');
-      final italic = _isEnabled(properties, 'i');
-      final underline = _isEnabled(properties, 'u');
-      final strike = _isEnabled(properties, 'strike');
-      final fontSize = _halfPoints(
-        _attribute(
-          properties == null ? null : _directChild(properties, 'sz'),
-          'val',
+      final textStyle = DocxTextStyle(
+        bold: _isEnabled(properties, 'b'),
+        italic: _isEnabled(properties, 'i'),
+        underline: _isEnabled(properties, 'u'),
+        strike: _isEnabled(properties, 'strike'),
+        fontSize: _halfPoints(
+          _attribute(
+            properties == null ? null : _directChild(properties, 'sz'),
+            'val',
+          ),
         ),
-      );
-      final color = _hexColor(
-        _attribute(
-          properties == null ? null : _directChild(properties, 'color'),
-          'val',
+        color: _hexColor(
+          _attribute(
+            properties == null ? null : _directChild(properties, 'color'),
+            'val',
+          ),
         ),
-      );
-      final highlightColor = _highlightColor(
-        _attribute(
-          properties == null ? null : _directChild(properties, 'highlight'),
-          'val',
+        highlightColor: _highlightColor(
+          _attribute(
+            properties == null ? null : _directChild(properties, 'highlight'),
+            'val',
+          ),
         ),
       );
       final text = StringBuffer();
@@ -140,16 +143,7 @@ class DocxParser {
         }
 
         runs.add(
-          DocxTextRun(
-            text: text.toString(),
-            bold: bold,
-            italic: italic,
-            underline: underline,
-            strike: strike,
-            fontSize: fontSize,
-            color: color,
-            highlightColor: highlightColor,
-          ),
+          DocxTextRun(text: text.toString(), style: textStyle),
         );
         text.clear();
       }
@@ -598,6 +592,22 @@ class DocxParser {
       'darkgray' => 0xFF808080,
       'lightgray' => 0xFFC0C0C0,
       _ => null,
+    };
+  }
+
+  DocxBuiltinKind _parseBuiltinKind(String? styleId) {
+    if (styleId == null) {
+      return DocxBuiltinKind.none;
+    }
+
+    return switch (styleId.toLowerCase().replaceAll(RegExp(r'[\s_-]'), '')) {
+      'title' => DocxBuiltinKind.title,
+      'subtitle' => DocxBuiltinKind.subtitle,
+      'heading1' => DocxBuiltinKind.heading1,
+      'heading2' => DocxBuiltinKind.heading2,
+      'heading3' => DocxBuiltinKind.heading3,
+      'normal' => DocxBuiltinKind.normal,
+      _ => DocxBuiltinKind.none,
     };
   }
 }

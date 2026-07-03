@@ -10,20 +10,27 @@ void main() {
     const document = DocxDocument(
       blocks: [
         DocxParagraph(
-          alignment: DocxParagraphAlignment.center,
-          spacingBefore: 12,
-          spacingAfter: 6,
-          lineHeight: 2,
+          style: DocxParagraphStyle(
+            align: DocxParagraphAlignment.center,
+            spacingBefore: 12,
+            spacingAfter: 6,
+            lineHeight: 2,
+          ),
           runs: [
-            DocxTextRun(text: 'Bold', bold: true),
-            DocxTextRun(text: ' Italic', italic: true),
-            DocxTextRun(text: ' Underlined', underline: true),
+            DocxTextRun(text: 'Bold', style: DocxTextStyle(bold: true)),
+            DocxTextRun(text: ' Italic', style: DocxTextStyle(italic: true)),
+            DocxTextRun(
+              text: ' Underlined',
+              style: DocxTextStyle(underline: true),
+            ),
             DocxTextRun(
               text: ' Priority',
-              strike: true,
-              fontSize: 18,
-              color: 0xFFFF0000,
-              highlightColor: 0xFFFFFF00,
+              style: DocxTextStyle(
+                strike: true,
+                fontSize: 18,
+                color: 0xFFFF0000,
+                highlightColor: 0xFFFFFF00,
+              ),
             ),
           ],
         ),
@@ -51,6 +58,114 @@ void main() {
     expect(root.style!.height, 2);
     final padding = tester.widget<Padding>(find.byType(Padding).first);
     expect(padding.padding, const EdgeInsets.only(top: 12, bottom: 6));
+  });
+
+  testWidgets('renders multi-style text with font size color highlight alignment', (
+    tester,
+  ) async {
+    const document = DocxDocument(
+      blocks: [
+        DocxParagraph(
+          style: DocxParagraphStyle(
+            styleId: 'Title',
+            kind: DocxBuiltinKind.title,
+            align: DocxParagraphAlignment.center,
+            spacingBefore: 20,
+            spacingAfter: 10,
+            lineHeight: 1.8,
+          ),
+          runs: [
+            DocxTextRun(
+              text: 'Styled Document',
+              style: DocxTextStyle(
+                bold: true,
+                fontSize: 28,
+                color: 0xFF1A237E,
+              ),
+            ),
+          ],
+        ),
+        DocxParagraph(
+          style: DocxParagraphStyle(
+            align: DocxParagraphAlignment.right,
+            spacingBefore: 8,
+            spacingAfter: 4,
+          ),
+          runs: [
+            DocxTextRun(
+              text: 'Italic and ',
+              style: DocxTextStyle(italic: true),
+            ),
+            DocxTextRun(
+              text: 'underlined ',
+              style: DocxTextStyle(underline: true),
+            ),
+            DocxTextRun(
+              text: 'strikethrough',
+              style: DocxTextStyle(strike: true),
+            ),
+          ],
+        ),
+        DocxParagraph(
+          runs: [
+            DocxTextRun(
+              text: 'Highlighted text',
+              style: DocxTextStyle(
+                highlightColor: 0xFFFFFF00,
+                fontSize: 20,
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Scaffold(body: DocxPreviewView(document: document)),
+      ),
+    );
+
+    // Title: center alignment, bold, large font, custom color
+    final titleRichText =
+        tester.widgetList<RichText>(find.byType(RichText)).first;
+    expect(titleRichText.textAlign, TextAlign.center);
+    final titleSpan = titleRichText.text as TextSpan;
+    expect(titleSpan.style!.fontWeight, FontWeight.bold);
+    expect(titleSpan.style!.fontSize, 26); // overridden by style kind
+    expect(titleSpan.children!.single.style!.color, const Color(0xFF1A237E));
+    expect(titleSpan.children!.single.style!.fontSize, 28);
+
+    // First paragraph padding
+    final paddings = tester.widgetList<Padding>(find.byType(Padding)).toList();
+    expect(
+      paddings[0].padding,
+      const EdgeInsets.only(left: 0, top: 20, bottom: 10),
+    );
+
+    // Italic, underline, strikethrough in second paragraph
+    final secondRichText =
+        tester.widgetList<RichText>(find.byType(RichText)).toList()[1];
+    expect(secondRichText.textAlign, TextAlign.right);
+    final secondChildren =
+        (secondRichText.text as TextSpan).children!.cast<TextSpan>();
+    expect(secondChildren[0].style!.fontStyle, FontStyle.italic);
+    expect(secondChildren[1].style!.decoration, TextDecoration.underline);
+    expect(
+      secondChildren[2].style!.decoration,
+      TextDecoration.lineThrough,
+    );
+
+    // Highlighted text with custom font size
+    final thirdChildren =
+        (tester.widgetList<RichText>(find.byType(RichText)).toList()[2].text
+                as TextSpan)
+            .children!
+            .cast<TextSpan>();
+    expect(
+      thirdChildren.single.style!.backgroundColor,
+      const Color(0xFFFFFF00),
+    );
   });
 
   testWidgets('renders mixed paragraphs and a table', (tester) async {
@@ -90,23 +205,38 @@ void main() {
     const document = DocxDocument(
       blocks: [
         DocxParagraph(
-          styleId: 'Title',
+          style: DocxParagraphStyle(
+            styleId: 'Title',
+            kind: DocxBuiltinKind.title,
+          ),
           runs: [DocxTextRun(text: 'Document title')],
         ),
         DocxParagraph(
-          styleId: 'Subtitle',
+          style: DocxParagraphStyle(
+            styleId: 'Subtitle',
+            kind: DocxBuiltinKind.subtitle,
+          ),
           runs: [DocxTextRun(text: 'Document subtitle')],
         ),
         DocxParagraph(
-          styleId: 'Heading1',
+          style: DocxParagraphStyle(
+            styleId: 'Heading1',
+            kind: DocxBuiltinKind.heading1,
+          ),
           runs: [DocxTextRun(text: 'Primary heading')],
         ),
         DocxParagraph(
-          styleId: 'Heading2',
+          style: DocxParagraphStyle(
+            styleId: 'Heading2',
+            kind: DocxBuiltinKind.heading2,
+          ),
           runs: [DocxTextRun(text: 'Secondary heading')],
         ),
         DocxParagraph(
-          styleId: 'Heading3',
+          style: DocxParagraphStyle(
+            styleId: 'Heading3',
+            kind: DocxBuiltinKind.heading3,
+          ),
           runs: [DocxTextRun(text: 'Tertiary heading')],
         ),
         DocxParagraph(runs: [DocxTextRun(text: 'Ordinary text')]),

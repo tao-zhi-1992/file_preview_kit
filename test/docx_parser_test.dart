@@ -39,9 +39,9 @@ void main() {
     final document = parser.parseBytes(_fixture('docx_03_rich_text_runs.docx'));
     final paragraph = document.blocks.single as DocxParagraph;
 
-    expect(paragraph.runs[0].bold, isTrue);
-    expect(paragraph.runs[2].italic, isTrue);
-    expect(paragraph.runs[4].underline, isTrue);
+    expect(paragraph.runs[0].style.bold, isTrue);
+    expect(paragraph.runs[2].style.italic, isTrue);
+    expect(paragraph.runs[4].style.underline, isTrue);
   });
 
   test('parses line breaks and tabs', () {
@@ -67,9 +67,21 @@ void main() {
   test('keeps heading style identifiers', () {
     final document = parser.parseBytes(_fixture('docx_06_headings.docx'));
 
-    expect((document.blocks[0] as DocxParagraph).styleId, 'Heading1');
-    expect((document.blocks[1] as DocxParagraph).styleId, 'Heading2');
-    expect((document.blocks[2] as DocxParagraph).styleId, isNull);
+    expect((document.blocks[0] as DocxParagraph).style.styleId, 'Heading1');
+    expect((document.blocks[1] as DocxParagraph).style.styleId, 'Heading2');
+    expect((document.blocks[2] as DocxParagraph).style.styleId, isNull);
+    expect(
+      (document.blocks[0] as DocxParagraph).style.kind,
+      DocxBuiltinKind.heading1,
+    );
+    expect(
+      (document.blocks[1] as DocxParagraph).style.kind,
+      DocxBuiltinKind.heading2,
+    );
+    expect(
+      (document.blocks[2] as DocxParagraph).style.kind,
+      DocxBuiltinKind.none,
+    );
   });
 
   test('parses readability paragraph and text styles', () {
@@ -82,15 +94,45 @@ void main() {
     final paragraph = document.blocks.single as DocxParagraph;
     final run = paragraph.runs.single;
 
-    expect(paragraph.styleId, 'Title');
-    expect(paragraph.alignment, DocxParagraphAlignment.right);
-    expect(paragraph.spacingBefore, 16);
-    expect(paragraph.spacingAfter, 8);
-    expect(paragraph.lineHeight, 1.5);
-    expect(run.strike, isTrue);
-    expect(run.fontSize, 16);
-    expect(run.color, 0xFFFF0000);
-    expect(run.highlightColor, 0xFFFFFF00);
+    expect(paragraph.style.styleId, 'Title');
+    expect(paragraph.style.kind, DocxBuiltinKind.title);
+    expect(paragraph.style.align, DocxParagraphAlignment.right);
+    expect(paragraph.style.spacingBefore, 16);
+    expect(paragraph.style.spacingAfter, 8);
+    expect(paragraph.style.lineHeight, 1.5);
+    expect(run.style.strike, isTrue);
+    expect(run.style.fontSize, 16);
+    expect(run.style.color, 0xFFFF0000);
+    expect(run.style.highlightColor, 0xFFFFFF00);
+  });
+
+  test('parses built-in style kinds for Title, Subtitle, Heading, Normal', () {
+    DocxParagraph _parseParagraph(String styleVal) {
+      return parser.parseBytes(
+        _documentBytes(
+          '<w:p><w:pPr><w:pStyle w:val="$styleVal"/></w:pPr><w:r><w:t>Text</w:t></w:r></w:p>',
+        ),
+      ).blocks.single as DocxParagraph;
+    }
+
+    expect(_parseParagraph('Title').style.kind, DocxBuiltinKind.title);
+    expect(_parseParagraph('Subtitle').style.kind, DocxBuiltinKind.subtitle);
+    expect(_parseParagraph('heading1').style.kind, DocxBuiltinKind.heading1);
+    expect(_parseParagraph('Heading 2').style.kind, DocxBuiltinKind.heading2);
+    expect(_parseParagraph('heading_3').style.kind, DocxBuiltinKind.heading3);
+    expect(_parseParagraph('Normal').style.kind, DocxBuiltinKind.normal);
+    expect(_parseParagraph('UnknownStyle').style.kind, DocxBuiltinKind.none);
+    expect(
+      (parser
+              .parseBytes(
+                _documentBytes('<w:p><w:r><w:t>No style</w:t></w:r></w:p>'),
+              )
+              .blocks
+              .single as DocxParagraph)
+          .style
+          .kind,
+      DocxBuiltinKind.none,
+    );
   });
 
   test('parses bullet list types and levels', () {
@@ -177,7 +219,7 @@ void main() {
     final document = parser.parseBytes(_fixture('docx_12_mixed_document.docx'));
     final table = document.blocks.whereType<DocxTable>().single;
 
-    expect((document.blocks.first as DocxParagraph).styleId, 'Heading1');
+    expect((document.blocks.first as DocxParagraph).style.styleId, 'Heading1');
     expect(
       document.blocks.whereType<DocxParagraph>().where(
         (paragraph) => paragraph.list != null,

@@ -49,9 +49,14 @@ class _DocxParagraphView extends StatelessWidget {
   Widget build(BuildContext context) {
     final baseStyle = _textStyle(context);
     final list = paragraph.list;
-    final styleId = _normalizedStyleId;
-    final defaultSpacingBefore = switch (styleId) {
-      'title' || 'subtitle' || 'heading1' || 'heading2' || 'heading3' => 16.0,
+    final style = paragraph.style;
+    final defaultSpacingBefore = switch (style.kind) {
+      DocxBuiltinKind.title ||
+      DocxBuiltinKind.subtitle ||
+      DocxBuiltinKind.heading1 ||
+      DocxBuiltinKind.heading2 ||
+      DocxBuiltinKind.heading3 =>
+        16.0,
       _ => 0.0,
     };
     final defaultSpacingAfter = list == null ? 8.0 : 4.0;
@@ -59,11 +64,11 @@ class _DocxParagraphView extends StatelessWidget {
     return Padding(
       padding: EdgeInsets.only(
         left: (list?.level ?? 0) * 24,
-        top: paragraph.spacingBefore ?? defaultSpacingBefore,
-        bottom: paragraph.spacingAfter ?? defaultSpacingAfter,
+        top: style.spacingBefore ?? defaultSpacingBefore,
+        bottom: style.spacingAfter ?? defaultSpacingAfter,
       ),
       child: RichText(
-        textAlign: switch (paragraph.alignment) {
+        textAlign: switch (style.align) {
           DocxParagraphAlignment.left => TextAlign.left,
           DocxParagraphAlignment.center => TextAlign.center,
           DocxParagraphAlignment.right => TextAlign.right,
@@ -83,14 +88,15 @@ class _DocxParagraphView extends StatelessWidget {
               TextSpan(
                 text: run.text,
                 style: TextStyle(
-                  fontWeight: run.bold ? FontWeight.bold : null,
-                  fontStyle: run.italic ? FontStyle.italic : null,
-                  decoration: _decoration(run),
-                  fontSize: run.fontSize,
-                  color: run.color == null ? null : Color(run.color!),
-                  backgroundColor: run.highlightColor == null
+                  fontWeight: run.style.bold ? FontWeight.bold : null,
+                  fontStyle: run.style.italic ? FontStyle.italic : null,
+                  decoration: _decoration(run.style),
+                  fontSize: run.style.fontSize,
+                  color:
+                      run.style.color == null ? null : Color(run.style.color!),
+                  backgroundColor: run.style.highlightColor == null
                       ? null
-                      : Color(run.highlightColor!),
+                      : Color(run.style.highlightColor!),
                 ),
               ),
           ],
@@ -102,27 +108,29 @@ class _DocxParagraphView extends StatelessWidget {
   TextStyle _textStyle(BuildContext context) {
     final normal = DefaultTextStyle.of(
       context,
-    ).style.copyWith(fontSize: 16, height: paragraph.lineHeight ?? 1.5);
+    ).style.copyWith(fontSize: 16, height: paragraph.style.lineHeight ?? 1.5);
 
-    return switch (_normalizedStyleId) {
-      'title' => normal.copyWith(fontSize: 26, fontWeight: FontWeight.bold),
-      'subtitle' => normal.copyWith(fontSize: 18, fontStyle: FontStyle.italic),
-      'heading1' => normal.copyWith(fontSize: 22, fontWeight: FontWeight.bold),
-      'heading2' => normal.copyWith(fontSize: 20, fontWeight: FontWeight.bold),
-      'heading3' => normal.copyWith(fontSize: 18, fontWeight: FontWeight.bold),
+    return switch (paragraph.style.kind) {
+      DocxBuiltinKind.title =>
+        normal.copyWith(fontSize: 26, fontWeight: FontWeight.bold),
+      DocxBuiltinKind.subtitle =>
+        normal.copyWith(fontSize: 18, fontStyle: FontStyle.italic),
+      DocxBuiltinKind.heading1 =>
+        normal.copyWith(fontSize: 22, fontWeight: FontWeight.bold),
+      DocxBuiltinKind.heading2 =>
+        normal.copyWith(fontSize: 20, fontWeight: FontWeight.bold),
+      DocxBuiltinKind.heading3 =>
+        normal.copyWith(fontSize: 18, fontWeight: FontWeight.bold),
       _ => normal,
     };
   }
 
-  String? get _normalizedStyleId =>
-      paragraph.styleId?.toLowerCase().replaceAll(RegExp(r'[\s_-]'), '');
-
   String _bullet(int level) => const ['•', '◦', '▪'][level % 3];
 
-  TextDecoration? _decoration(DocxTextRun run) {
+  TextDecoration? _decoration(DocxTextStyle textStyle) {
     final decorations = [
-      if (run.underline) TextDecoration.underline,
-      if (run.strike) TextDecoration.lineThrough,
+      if (textStyle.underline) TextDecoration.underline,
+      if (textStyle.strike) TextDecoration.lineThrough,
     ];
     return decorations.isEmpty ? null : TextDecoration.combine(decorations);
   }

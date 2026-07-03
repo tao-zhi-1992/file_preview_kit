@@ -10,28 +10,11 @@ sealed class DocxBlock {
   const DocxBlock();
 }
 
-class DocxParagraph extends DocxBlock {
-  final List<DocxTextRun> runs;
-  final DocxParagraphAlignment? alignment;
-  final String? styleId;
-  final DocxListInfo? list;
-  final double? spacingBefore;
-  final double? spacingAfter;
-  final double? lineHeight;
+// ---------------------------------------------------------------------------
+// Text style
+// ---------------------------------------------------------------------------
 
-  const DocxParagraph({
-    required this.runs,
-    this.alignment,
-    this.styleId,
-    this.list,
-    this.spacingBefore,
-    this.spacingAfter,
-    this.lineHeight,
-  });
-}
-
-class DocxTextRun {
-  final String text;
+class DocxTextStyle {
   final bool bold;
   final bool italic;
   final bool underline;
@@ -40,8 +23,7 @@ class DocxTextRun {
   final int? color;
   final int? highlightColor;
 
-  const DocxTextRun({
-    required this.text,
+  const DocxTextStyle({
     this.bold = false,
     this.italic = false,
     this.underline = false,
@@ -51,6 +33,68 @@ class DocxTextRun {
     this.highlightColor,
   });
 }
+
+// ---------------------------------------------------------------------------
+// Paragraph style
+// ---------------------------------------------------------------------------
+
+enum DocxBuiltinKind {
+  title,
+  subtitle,
+  heading1,
+  heading2,
+  heading3,
+  normal,
+  none,
+}
+
+class DocxParagraphStyle {
+  final String? styleId;
+  final DocxBuiltinKind kind;
+  final DocxParagraphAlignment? align;
+  final double? spacingBefore;
+  final double? spacingAfter;
+  final double? lineHeight;
+
+  const DocxParagraphStyle({
+    this.styleId,
+    this.kind = DocxBuiltinKind.none,
+    this.align,
+    this.spacingBefore,
+    this.spacingAfter,
+    this.lineHeight,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Paragraph block
+// ---------------------------------------------------------------------------
+
+class DocxParagraph extends DocxBlock {
+  final List<DocxTextRun> runs;
+  final DocxParagraphStyle style;
+  final DocxListInfo? list;
+
+  const DocxParagraph({
+    required this.runs,
+    this.style = const DocxParagraphStyle(),
+    this.list,
+  });
+}
+
+class DocxTextRun {
+  final String text;
+  final DocxTextStyle style;
+
+  const DocxTextRun({
+    required this.text,
+    this.style = const DocxTextStyle(),
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Table block
+// ---------------------------------------------------------------------------
 
 class DocxTable extends DocxBlock {
   final List<DocxTableRow> rows;
@@ -78,6 +122,10 @@ class DocxTableCell {
   const DocxTableCell({required this.blocks, this.columnSpan = 1, this.width});
 }
 
+// ---------------------------------------------------------------------------
+// Image block
+// ---------------------------------------------------------------------------
+
 class DocxImage extends DocxBlock {
   final Uint8List bytes;
   final String contentType;
@@ -91,6 +139,10 @@ class DocxImage extends DocxBlock {
     this.height,
   });
 }
+
+// ---------------------------------------------------------------------------
+// List
+// ---------------------------------------------------------------------------
 
 class DocxListInfo {
   final DocxListType type;
