@@ -15,12 +15,18 @@ class DocxParagraph extends DocxBlock {
   final DocxParagraphAlignment? alignment;
   final String? styleId;
   final DocxListInfo? list;
+  final double? spacingBefore;
+  final double? spacingAfter;
+  final double? lineHeight;
 
   const DocxParagraph({
     required this.runs,
     this.alignment,
     this.styleId,
     this.list,
+    this.spacingBefore,
+    this.spacingAfter,
+    this.lineHeight,
   });
 }
 
@@ -29,19 +35,33 @@ class DocxTextRun {
   final bool bold;
   final bool italic;
   final bool underline;
+  final bool strike;
+  final double? fontSize;
+  final int? color;
+  final int? highlightColor;
 
   const DocxTextRun({
     required this.text,
     this.bold = false,
     this.italic = false,
     this.underline = false,
+    this.strike = false,
+    this.fontSize,
+    this.color,
+    this.highlightColor,
   });
 }
 
 class DocxTable extends DocxBlock {
   final List<DocxTableRow> rows;
+  final List<double?> columnWidths;
+  final bool hasBorders;
 
-  const DocxTable({required this.rows});
+  const DocxTable({
+    required this.rows,
+    this.columnWidths = const [],
+    this.hasBorders = false,
+  });
 }
 
 class DocxTableRow {
@@ -52,8 +72,10 @@ class DocxTableRow {
 
 class DocxTableCell {
   final List<DocxBlock> blocks;
+  final int columnSpan;
+  final double? width;
 
-  const DocxTableCell({required this.blocks});
+  const DocxTableCell({required this.blocks, this.columnSpan = 1, this.width});
 }
 
 class DocxImage extends DocxBlock {

@@ -72,6 +72,27 @@ void main() {
     expect((document.blocks[2] as DocxParagraph).styleId, isNull);
   });
 
+  test('parses readability paragraph and text styles', () {
+    final document = parser.parseBytes(
+      _documentBytes(
+        '''
+<w:p><w:pPr><w:pStyle w:val="Title"/><w:jc w:val="right"/><w:spacing w:before="240" w:after="120" w:line="360"/></w:pPr><w:r><w:rPr><w:strike/><w:sz w:val="32"/><w:color w:val="FF0000"/><w:highlight w:val="yellow"/></w:rPr><w:t>Priority note</w:t></w:r></w:p>''',
+      ),
+    );
+    final paragraph = document.blocks.single as DocxParagraph;
+    final run = paragraph.runs.single;
+
+    expect(paragraph.styleId, 'Title');
+    expect(paragraph.alignment, DocxParagraphAlignment.right);
+    expect(paragraph.spacingBefore, 16);
+    expect(paragraph.spacingAfter, 8);
+    expect(paragraph.lineHeight, 1.5);
+    expect(run.strike, isTrue);
+    expect(run.fontSize, 16);
+    expect(run.color, 0xFFFF0000);
+    expect(run.highlightColor, 0xFFFFFF00);
+  });
+
   test('parses bullet list types and levels', () {
     final document = parser.parseBytes(_fixture('docx_07_bullet_list.docx'));
     final lists = document.blocks
@@ -103,6 +124,22 @@ void main() {
     expect(table.rows.first.cells, hasLength(3));
     expect(_cellText(table.rows[1].cells[0]), 'A-101');
     expect(_cellText(table.rows[2].cells[2]), 'Draft');
+  });
+
+  test('parses table borders widths and horizontal spans', () {
+    final document = parser.parseBytes(
+      _documentBytes(
+        '''
+<w:tbl><w:tblPr><w:tblBorders><w:top w:val="single"/></w:tblBorders></w:tblPr><w:tblGrid><w:gridCol w:w="1500"/><w:gridCol w:w="3000"/></w:tblGrid><w:tr><w:tc><w:tcPr><w:tcW w:w="4500" w:type="dxa"/><w:gridSpan w:val="2"/></w:tcPr><w:p><w:r><w:t>Merged heading</w:t></w:r></w:p></w:tc></w:tr></w:tbl>''',
+      ),
+    );
+    final table = document.blocks.single as DocxTable;
+    final cell = table.rows.single.cells.single;
+
+    expect(table.hasBorders, isTrue);
+    expect(table.columnWidths, [100, 200]);
+    expect(cell.columnSpan, 2);
+    expect(cell.width, 300);
   });
 
   test('keeps multiple paragraphs in a table cell', () {

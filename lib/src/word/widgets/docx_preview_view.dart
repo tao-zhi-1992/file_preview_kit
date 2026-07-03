@@ -49,9 +49,19 @@ class _DocxParagraphView extends StatelessWidget {
   Widget build(BuildContext context) {
     final baseStyle = _textStyle(context);
     final list = paragraph.list;
+    final styleId = _normalizedStyleId;
+    final defaultSpacingBefore = switch (styleId) {
+      'title' || 'subtitle' || 'heading1' || 'heading2' || 'heading3' => 16.0,
+      _ => 0.0,
+    };
+    final defaultSpacingAfter = list == null ? 8.0 : 4.0;
 
     return Padding(
-      padding: EdgeInsets.only(left: (list?.level ?? 0) * 20, bottom: 8),
+      padding: EdgeInsets.only(
+        left: (list?.level ?? 0) * 24,
+        top: paragraph.spacingBefore ?? defaultSpacingBefore,
+        bottom: paragraph.spacingAfter ?? defaultSpacingAfter,
+      ),
       child: RichText(
         textAlign: switch (paragraph.alignment) {
           DocxParagraphAlignment.left => TextAlign.left,
@@ -66,7 +76,7 @@ class _DocxParagraphView extends StatelessWidget {
             if (list != null)
               TextSpan(
                 text: list.type == DocxListType.bullet
-                    ? '• '
+                    ? '${_bullet(list.level)} '
                     : '${list.number ?? 1}. ',
               ),
             for (final run in paragraph.runs)
@@ -75,7 +85,12 @@ class _DocxParagraphView extends StatelessWidget {
                 style: TextStyle(
                   fontWeight: run.bold ? FontWeight.bold : null,
                   fontStyle: run.italic ? FontStyle.italic : null,
-                  decoration: run.underline ? TextDecoration.underline : null,
+                  decoration: _decoration(run),
+                  fontSize: run.fontSize,
+                  color: run.color == null ? null : Color(run.color!),
+                  backgroundColor: run.highlightColor == null
+                      ? null
+                      : Color(run.highlightColor!),
                 ),
               ),
           ],
@@ -87,18 +102,29 @@ class _DocxParagraphView extends StatelessWidget {
   TextStyle _textStyle(BuildContext context) {
     final normal = DefaultTextStyle.of(
       context,
-    ).style.copyWith(fontSize: 16, height: 1.5);
-    final styleId = paragraph.styleId?.toLowerCase().replaceAll(
-      RegExp(r'[\s_-]'),
-      '',
-    );
+    ).style.copyWith(fontSize: 16, height: paragraph.lineHeight ?? 1.5);
 
-    return switch (styleId) {
+    return switch (_normalizedStyleId) {
+      'title' => normal.copyWith(fontSize: 26, fontWeight: FontWeight.bold),
+      'subtitle' => normal.copyWith(fontSize: 18, fontStyle: FontStyle.italic),
       'heading1' => normal.copyWith(fontSize: 22, fontWeight: FontWeight.bold),
       'heading2' => normal.copyWith(fontSize: 20, fontWeight: FontWeight.bold),
       'heading3' => normal.copyWith(fontSize: 18, fontWeight: FontWeight.bold),
       _ => normal,
     };
+  }
+
+  String? get _normalizedStyleId =>
+      paragraph.styleId?.toLowerCase().replaceAll(RegExp(r'[\s_-]'), '');
+
+  String _bullet(int level) => const ['•', '◦', '▪'][level % 3];
+
+  TextDecoration? _decoration(DocxTextRun run) {
+    final decorations = [
+      if (run.underline) TextDecoration.underline,
+      if (run.strike) TextDecoration.lineThrough,
+    ];
+    return decorations.isEmpty ? null : TextDecoration.combine(decorations);
   }
 }
 
@@ -169,41 +195,111 @@ class _DocxTableView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final columnCount = table.rows.fold<int>(
-      0,
-      (count, row) => row.cells.length > count ? row.cells.length : count,
-    );
+    final columnCount = table.rows.fold<int>(0, (count, row) {
+      final columns = row.cells.fold<int>(
+        0,
+        (total, cell) => total + cell.columnSpan,
+      );
+      return columns > count ? columns : count;
+    });
 
     if (columnCount == 0) {
       return const SizedBox.shrink();
     }
 
     return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: Table(
-        border: TableBorder.all(color: Theme.of(context).dividerColor),
-        defaultVerticalAlignment: TableCellVerticalAlignment.top,
+      padding: const EdgeInsets.symmetric(vertical: 12),
+      child: Column(
         children: [
-          for (final row in table.rows)
-            TableRow(
-              children: [
-                for (var index = 0; index < columnCount; index++)
-                  Padding(
-                    padding: const EdgeInsets.all(8),
-                    child: index < row.cells.length
-                        ? Column(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: [
-                              for (final block in row.cells[index].blocks)
-                                _DocxBlockView(block: block),
-                            ],
-                          )
-                        : const SizedBox.shrink(),
-                  ),
-              ],
-            ),
+          for (var rowIndex = 0; rowIndex < table.rows.length; rowIndex++)
+            _buildRow(context, table.rows[rowIndex], rowIndex, columnCount),
         ],
       ),
     );
+  }
+
+  Widget _buildRow(
+    BuildContext context,
+    DocxTableRow row,
+    int rowIndex,
+    int columnCount,
+  ) {
+    var columnIndex = 0;
+    final children = <Widget>[];
+
+    for (var cellIndex = 0; cellIndex < row.cells.length; cellIndex++) {
+      final cell = row.cells[cellIndex];
+      children.add(
+        Expanded(
+          flex: _cellFlex(cell, columnIndex),
+          child: _buildCell(context, cell, rowIndex, cellIndex),
+        ),
+      );
+      columnIndex += cell.columnSpan;
+    }
+
+    if (columnIndex < columnCount) {
+      children.add(
+        Expanded(
+          flex: _columnFlex(columnIndex, columnCount - columnIndex),
+          child: _buildCell(
+            context,
+            const DocxTableCell(blocks: []),
+            rowIndex,
+            row.cells.length,
+          ),
+        ),
+      );
+    }
+
+    return IntrinsicHeight(
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: children,
+      ),
+    );
+  }
+
+  Widget _buildCell(
+    BuildContext context,
+    DocxTableCell cell,
+    int rowIndex,
+    int cellIndex,
+  ) {
+    return Container(
+      key: ValueKey('docx-table-cell-$rowIndex-$cellIndex'),
+      padding: const EdgeInsets.all(8),
+      decoration: BoxDecoration(
+        border: Border.all(
+          color: Theme.of(context).dividerColor,
+          width: table.hasBorders ? 1 : 0.5,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          for (final block in cell.blocks) _DocxBlockView(block: block),
+        ],
+      ),
+    );
+  }
+
+  int _cellFlex(DocxTableCell cell, int columnIndex) {
+    final width = cell.width;
+    return width == null
+        ? _columnFlex(columnIndex, cell.columnSpan)
+        : math.max(1, width.round());
+  }
+
+  int _columnFlex(int start, int span) {
+    var width = 0.0;
+
+    for (var index = start; index < start + span; index++) {
+      width += index < table.columnWidths.length
+          ? table.columnWidths[index] ?? 100
+          : 100;
+    }
+
+    return math.max(1, width.round());
   }
 }

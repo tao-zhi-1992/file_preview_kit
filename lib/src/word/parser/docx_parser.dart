@@ -77,7 +77,13 @@ class DocxParser {
     final justification = paragraphProperties == null
         ? null
         : _directChild(paragraphProperties, 'jc');
+    final spacing = paragraphProperties == null
+        ? null
+        : _directChild(paragraphProperties, 'spacing');
     final alignment = _parseAlignment(_attribute(justification, 'val'));
+    final spacingBefore = _twipsToPixels(_attribute(spacing, 'before'));
+    final spacingAfter = _twipsToPixels(_attribute(spacing, 'after'));
+    final lineHeight = _lineHeight(_attribute(spacing, 'line'));
     var list = _parseList(paragraphProperties, state);
     final blocks = <DocxBlock>[];
     final runs = <DocxTextRun>[];
@@ -93,6 +99,9 @@ class DocxParser {
           alignment: alignment,
           styleId: styleId,
           list: list,
+          spacingBefore: spacingBefore,
+          spacingAfter: spacingAfter,
+          lineHeight: lineHeight,
         ),
       );
       runs.clear();
@@ -104,6 +113,25 @@ class DocxParser {
       final bold = _isEnabled(properties, 'b');
       final italic = _isEnabled(properties, 'i');
       final underline = _isEnabled(properties, 'u');
+      final strike = _isEnabled(properties, 'strike');
+      final fontSize = _halfPoints(
+        _attribute(
+          properties == null ? null : _directChild(properties, 'sz'),
+          'val',
+        ),
+      );
+      final color = _hexColor(
+        _attribute(
+          properties == null ? null : _directChild(properties, 'color'),
+          'val',
+        ),
+      );
+      final highlightColor = _highlightColor(
+        _attribute(
+          properties == null ? null : _directChild(properties, 'highlight'),
+          'val',
+        ),
+      );
       final text = StringBuffer();
 
       void addTextRun() {
@@ -117,6 +145,10 @@ class DocxParser {
             bold: bold,
             italic: italic,
             underline: underline,
+            strike: strike,
+            fontSize: fontSize,
+            color: color,
+            highlightColor: highlightColor,
           ),
         );
         text.clear();
@@ -244,19 +276,65 @@ class DocxParser {
   }
 
   DocxTable _parseTable(XmlElement table, _ParseState state) {
+    final tableProperties = _directChild(table, 'tblPr');
+    final borders = tableProperties == null
+        ? null
+        : _directChild(tableProperties, 'tblBorders');
+    final grid = _directChild(table, 'tblGrid');
+    final columnWidths = grid == null
+        ? <double?>[]
+        : [
+            for (final column in grid.childElements.where(
+              (element) => element.name.local == 'gridCol',
+            ))
+              _twipsToPixels(_attribute(column, 'w')),
+          ];
     final rows = <DocxTableRow>[];
 
     for (final row in table.childElements.where((e) => e.name.local == 'tr')) {
       final cells = <DocxTableCell>[];
 
       for (final cell in row.childElements.where((e) => e.name.local == 'tc')) {
-        cells.add(DocxTableCell(blocks: _parseBlocks(cell, state)));
+        final properties = _directChild(cell, 'tcPr');
+        final span =
+            int.tryParse(
+              _attribute(
+                    properties == null
+                        ? null
+                        : _directChild(properties, 'gridSpan'),
+                    'val',
+                  ) ??
+                  '',
+            ) ??
+            1;
+        final widthElement = properties == null
+            ? null
+            : _directChild(properties, 'tcW');
+        final width = _attribute(widthElement, 'type') == 'dxa'
+            ? _twipsToPixels(_attribute(widthElement, 'w'))
+            : null;
+        cells.add(
+          DocxTableCell(
+            blocks: _parseBlocks(cell, state),
+            columnSpan: span < 1 ? 1 : span,
+            width: width,
+          ),
+        );
       }
 
       rows.add(DocxTableRow(cells: cells));
     }
 
-    return DocxTable(rows: rows);
+    return DocxTable(
+      rows: rows,
+      columnWidths: columnWidths,
+      hasBorders:
+          borders != null &&
+          borders.childElements.any((border) {
+            final value = _attribute(border, 'val');
+            return value != 'nil' && value != 'none';
+          }),
+    );
   }
 
   Map<String, _Relationship> _parseRelationships(String? xmlText) {
@@ -470,6 +548,57 @@ class DocxParser {
   double? _emuToPixels(String? value) {
     final emu = int.tryParse(value ?? '');
     return emu == null ? null : emu / _emuPerLogicalPixel;
+  }
+
+  double? _twipsToPixels(String? value) {
+    final twips = int.tryParse(value ?? '');
+    return twips == null ? null : twips / 15;
+  }
+
+  double? _lineHeight(String? value) {
+    final line = int.tryParse(value ?? '');
+    return line == null || line <= 0 ? null : line / 240;
+  }
+
+  double? _halfPoints(String? value) {
+    final halfPoints = int.tryParse(value ?? '');
+    return halfPoints == null ? null : halfPoints / 2;
+  }
+
+  int? _hexColor(String? value) {
+    if (value == null || value.toLowerCase() == 'auto') {
+      return null;
+    }
+
+    final parsed = int.tryParse(value, radix: 16);
+
+    if (parsed == null) {
+      return null;
+    }
+
+    return value.length <= 6 ? 0xFF000000 | parsed : parsed;
+  }
+
+  int? _highlightColor(String? value) {
+    return switch (value?.toLowerCase()) {
+      'black' => 0xFF000000,
+      'blue' => 0xFF0000FF,
+      'cyan' => 0xFF00FFFF,
+      'green' => 0xFF00FF00,
+      'magenta' => 0xFFFF00FF,
+      'red' => 0xFFFF0000,
+      'yellow' => 0xFFFFFF00,
+      'white' => 0xFFFFFFFF,
+      'darkblue' => 0xFF000080,
+      'darkcyan' => 0xFF008080,
+      'darkgreen' => 0xFF008000,
+      'darkmagenta' => 0xFF800080,
+      'darkred' => 0xFF800000,
+      'darkyellow' => 0xFF808000,
+      'darkgray' => 0xFF808080,
+      'lightgray' => 0xFFC0C0C0,
+      _ => null,
+    };
   }
 }
 
