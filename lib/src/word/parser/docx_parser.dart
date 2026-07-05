@@ -112,6 +112,9 @@ const _symbolFontMap = {
 
 /// Parses DOCX package bytes into a renderable document model.
 class DocxParser {
+  /// Creates a DOCX parser.
+  const DocxParser();
+
   /// Parses [bytes] and returns document content in source order.
   DocxDocument parseBytes(Uint8List bytes) {
     if (bytes.isEmpty) {
@@ -821,12 +824,16 @@ class DocxParser {
     counters.removeWhere((counterLevel, _) => counterLevel > level);
     final number = (counters[level] ?? definition.start - 1) + 1;
     counters[level] = number;
+    final numberingDefinitions = state.numbering[numberId];
+    final marker = numberingDefinitions == null
+        ? null
+        : _numberingMarker(numberingDefinitions, counters, level);
 
     return DocxListInfo(
       type: type,
       level: level,
       number: number,
-      marker: _numberingMarker(state.numbering[numberId]!, counters, level),
+      marker: marker,
       indentStart: indentStart,
       hangingIndent: hangingIndent,
     );
@@ -1314,7 +1321,7 @@ class DocxParser {
     // Try the font-specific symbol map or fall back to the Unicode character.
     final fontMap = _symbolFontMap[font];
     if (fontMap != null && fontMap.containsKey(charCode)) {
-      return fontMap[charCode]!;
+      return fontMap[charCode] ?? '';
     }
 
     // For characters in the Private Use Area, try to map via common fonts.
@@ -1322,7 +1329,7 @@ class DocxParser {
       final mapped = charCode - 0xF000;
       final fallbackMap = _symbolFontMap['Symbol'];
       if (fallbackMap != null && fallbackMap.containsKey(mapped)) {
-        return fallbackMap[mapped]!;
+        return fallbackMap[mapped] ?? '';
       }
     }
 
@@ -1420,10 +1427,10 @@ class DocxParser {
 
     if (xmlText == null) {
       return _DocxStyles(
-        paragraphStyleMap,
-        characterStyleMap,
-        tableStyleMap,
-        numberingStyleMap,
+        paragraphStyles: paragraphStyleMap,
+        characterStyles: characterStyleMap,
+        tableStyles: tableStyleMap,
+        numberingStyles: numberingStyleMap,
       );
     }
 
@@ -1488,12 +1495,12 @@ class DocxParser {
     }
 
     return _DocxStyles(
-      paragraphStyleMap,
-      characterStyleMap,
-      tableStyleMap,
-      numberingStyleMap,
-      defaultParagraphProperties,
-      defaultRunProperties,
+      paragraphStyles: paragraphStyleMap,
+      characterStyles: characterStyleMap,
+      tableStyles: tableStyleMap,
+      numberingStyles: numberingStyleMap,
+      defaultParagraphProperties: defaultParagraphProperties,
+      defaultRunProperties: defaultRunProperties,
     );
   }
 
@@ -1663,7 +1670,11 @@ class DocxParser {
             ? abstracts[abstractId] ?? const {}
             : resolve(linkedNumberId, visited),
       );
-      for (final override in numberElements[numberId]!.childElements.where(
+      final numberElement = numberElements[numberId];
+      if (numberElement == null) {
+        return resolved;
+      }
+      for (final override in numberElement.childElements.where(
         (element) => element.name.local == 'lvlOverride',
       )) {
         final level = int.tryParse(_attribute(override, 'ilvl') ?? '');
@@ -1950,14 +1961,14 @@ class _DocxStyles {
   final XmlElement? defaultParagraphProperties;
   final XmlElement? defaultRunProperties;
 
-  const _DocxStyles(
-    this.paragraphStyles,
-    this.characterStyles,
-    this.tableStyles,
-    this.numberingStyles, [
+  const _DocxStyles({
+    required this.paragraphStyles,
+    required this.characterStyles,
+    required this.tableStyles,
+    required this.numberingStyles,
     this.defaultParagraphProperties,
     this.defaultRunProperties,
-  ]);
+  });
 
   _DocxParagraphStyleDef? resolveParagraphStyle(String? styleId) {
     if (styleId == null) {

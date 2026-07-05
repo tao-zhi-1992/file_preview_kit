@@ -10,6 +10,9 @@ import 'excel_theme_colors.dart';
 
 /// Parses `xl/styles.xml` into cell style records.
 class StylesReader {
+  /// Creates a styles reader.
+  const StylesReader();
+
   /// Returns styles and number formats per `cellXfs/xf` entry.
   ExcelStylesParseResult parse(
     String xmlText, {
@@ -36,20 +39,18 @@ class StylesReader {
       final borderId = int.tryParse(xf.getAttribute('borderId') ?? '');
       final numFmtId = int.tryParse(xf.getAttribute('numFmtId') ?? '0') ?? 0;
 
-      final fontStyle =
-          fontId != null && fontId >= 0 && fontId < fonts.length
-              ? fonts[fontId]
-              : ExcelCellStyle.empty;
+      final fontStyle = fontId != null && fontId >= 0 && fontId < fonts.length
+          ? fonts[fontId]
+          : ExcelCellStyle.empty;
 
-      final fillColor =
-          fillId != null && fillId >= 0 && fillId < fills.length
-              ? fills[fillId]
-              : null;
+      final fillColor = fillId != null && fillId >= 0 && fillId < fills.length
+          ? fills[fillId]
+          : null;
 
       final borderStyle =
           borderId != null && borderId >= 0 && borderId < borders.length
-              ? borders[borderId]
-              : ExcelCellBorders.empty;
+          ? borders[borderId]
+          : ExcelCellBorders.empty;
 
       final alignment = _parseAlignment(xf);
 
@@ -69,15 +70,10 @@ class StylesReader {
           borders: borderStyle,
         ),
       );
-      numberFormats.add(
-        ExcelNumberFormat.resolveFormatCode(numFmtId, numFmts),
-      );
+      numberFormats.add(ExcelNumberFormat.resolveFormatCode(numFmtId, numFmts));
     }
 
-    return ExcelStylesParseResult(
-      styles: styles,
-      numberFormats: numberFormats,
-    );
+    return ExcelStylesParseResult(styles: styles, numberFormats: numberFormats);
   }
 
   Map<int, String> _parseNumFmts(XmlDocument document) {
@@ -179,9 +175,18 @@ class StylesReader {
     for (final border in bordersElement.findElements('border')) {
       result.add(
         ExcelCellBorders(
-          left: _parseBorderSide(border.findElements('left').firstOrNull, themeColors),
-          right: _parseBorderSide(border.findElements('right').firstOrNull, themeColors),
-          top: _parseBorderSide(border.findElements('top').firstOrNull, themeColors),
+          left: _parseBorderSide(
+            border.findElements('left').firstOrNull,
+            themeColors,
+          ),
+          right: _parseBorderSide(
+            border.findElements('right').firstOrNull,
+            themeColors,
+          ),
+          top: _parseBorderSide(
+            border.findElements('top').firstOrNull,
+            themeColors,
+          ),
           bottom: _parseBorderSide(
             border.findElements('bottom').firstOrNull,
             themeColors,
@@ -211,10 +216,7 @@ class StylesReader {
         : element.findElements('color').first;
     final color = _parseColor(colorElement, themeColors) ?? Colors.black;
 
-    return BorderSide(
-      color: color,
-      width: _borderWidth(style),
-    );
+    return BorderSide(color: color, width: _borderWidth(style));
   }
 
   double _borderWidth(String style) {
@@ -265,10 +267,7 @@ class StylesReader {
     );
   }
 
-  Color? _parseColor(
-    XmlElement? element,
-    ExcelThemeColors? themeColors,
-  ) {
+  Color? _parseColor(XmlElement? element, ExcelThemeColors? themeColors) {
     if (element == null) {
       return null;
     }

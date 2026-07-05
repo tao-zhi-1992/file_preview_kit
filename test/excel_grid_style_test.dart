@@ -77,12 +77,7 @@ void main() {
       rowCount: 1,
       columnCount: 3,
       mergeRegions: const [
-        ExcelMergeRegion(
-          startRow: 0,
-          startColumn: 0,
-          endRow: 0,
-          endColumn: 2,
-        ),
+        ExcelMergeRegion(startRow: 0, startColumn: 0, endRow: 0, endColumn: 2),
       ],
       rows: [
         [
@@ -153,18 +148,12 @@ void main() {
       ),
     );
 
-  final table = tester.widget<TableView>(find.byType(TableView));
+    final table = tester.widget<TableView>(find.byType(TableView));
     final delegate = table.delegate as TableCellDelegateMixin;
     final wideColumn = delegate.buildColumn(2)!;
     final defaultColumn = delegate.buildColumn(1)!;
 
-    expect(
-      (wideColumn.extent as FixedTableSpanExtent).pixels,
-      200,
-    );
-    expect(
-      (defaultColumn.extent as FixedTableSpanExtent).pixels,
-      120,
-    );
+    expect((wideColumn.extent as FixedTableSpanExtent).pixels, 200);
+    expect((defaultColumn.extent as FixedTableSpanExtent).pixels, 120);
   });
 }

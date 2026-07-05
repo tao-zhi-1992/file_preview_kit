@@ -142,16 +142,13 @@ void main() {
           ),
         )
         ..addFile(
-          ArchiveFile.string(
-            'xl/worksheets/sheet1.xml',
-            '''
+          ArchiveFile.string('xl/worksheets/sheet1.xml', '''
 <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
   <sheetData>
     <row r="1"><c r="A1" s="3"><v>Sample</v></c></row>
   </sheetData>
 </worksheet>
-''',
-          ),
+'''),
         );
 
       final workbook = XlsxParser().parseBytes(

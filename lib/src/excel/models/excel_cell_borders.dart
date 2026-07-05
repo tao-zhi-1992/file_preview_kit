@@ -7,12 +7,7 @@ class ExcelCellBorders {
   final BorderSide? bottom;
   final BorderSide? left;
 
-  const ExcelCellBorders({
-    this.top,
-    this.right,
-    this.bottom,
-    this.left,
-  });
+  const ExcelCellBorders({this.top, this.right, this.bottom, this.left});
 
   static const empty = ExcelCellBorders();
 

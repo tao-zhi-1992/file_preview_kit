@@ -3,13 +3,9 @@ import 'package:flutter/material.dart';
 import '../core/file_preview_kit_theme.dart';
 import '../core/file_preview_kit_texts.dart';
 import '../core/preview_exception.dart';
+import '../core/preview_loader.dart';
 import '../core/preview_source.dart';
-import '../core/preview_type.dart';
-import '../csv/parser/csv_parser.dart';
-import '../excel/models/excel_workbook.dart';
-import '../excel/parser/xlsx_parser.dart';
 import '../excel/widgets/excel_preview_view.dart';
-import '../word/parser/docx_parser.dart';
 import '../word/widgets/docx_preview_view.dart';
 import 'preview_error_view.dart';
 import 'preview_loading_view.dart';
@@ -43,7 +39,7 @@ class FilePreviewView extends StatefulWidget {
 }
 
 class _FilePreviewViewState extends State<FilePreviewView> {
-  late Future<Widget> _previewFuture;
+  late Future<PreviewContent> _previewFuture;
   FilePreviewKitTexts? _resolvedTexts;
 
   @override
@@ -53,7 +49,7 @@ class _FilePreviewViewState extends State<FilePreviewView> {
 
     if (!identical(_resolvedTexts, texts)) {
       _resolvedTexts = texts;
-      _previewFuture = _buildPreview(texts, _resolveTheme());
+      _previewFuture = FilePreviewLoader.load(widget.source);
     }
   }
 
@@ -67,106 +63,71 @@ class _FilePreviewViewState extends State<FilePreviewView> {
         oldWidget.onLinkTap != widget.onLinkTap) {
       final texts = _resolveTexts(context);
       _resolvedTexts = texts;
-      _previewFuture = _buildPreview(texts, _resolveTheme());
+      _previewFuture = FilePreviewLoader.load(widget.source);
     }
   }
 
   @override
   Widget build(BuildContext context) {
     final texts = _resolveTexts(context);
+    final theme = _resolveTheme();
 
     return Theme(
-      data: _resolveTheme(),
-      child: Builder(
-        builder: (context) => FutureBuilder<Widget>(
-          future: _previewFuture,
-          builder: (context, snapshot) {
-            if (snapshot.connectionState != ConnectionState.done) {
-              return const PreviewLoadingView();
-            }
+      data: theme,
+      child: FutureBuilder<PreviewContent>(
+        future: _previewFuture,
+        builder: (context, snapshot) {
+          if (snapshot.connectionState != ConnectionState.done) {
+            return const PreviewLoadingView();
+          }
 
-            if (snapshot.hasError) {
-              return PreviewErrorView(
-                title: texts.previewFailedTitle,
-                message: _errorMessage(snapshot.error, texts),
-              );
-            }
+          if (snapshot.hasError) {
+            return PreviewErrorView(
+              title: texts.previewFailedTitle,
+              message: _errorMessage(snapshot.error, texts),
+            );
+          }
 
-            return snapshot.data ??
-                PreviewErrorView(
-                  title: texts.previewFailedTitle,
-                  message: texts.unableToPreviewMessage,
-                );
-          },
-        ),
+          final content = snapshot.data;
+          if (content == null) {
+            return PreviewErrorView(
+              title: texts.previewFailedTitle,
+              message: texts.unableToPreviewMessage,
+            );
+          }
+
+          return _widgetForContent(content, texts: texts, theme: theme);
+        },
       ),
     );
   }
 
-  Future<Widget> _buildPreview(
-    FilePreviewKitTexts texts,
-    ThemeData theme,
-  ) async {
-    final type = _detectType(widget.source);
-
-    switch (type) {
-      case PreviewType.xlsx:
-        final ExcelWorkbook workbook = XlsxParser().parseBytes(
-          widget.source.bytes,
-        );
-
-        return ExcelPreviewView(workbook: workbook, texts: texts, theme: theme);
-
-      case PreviewType.csv:
-        final workbook = CsvParser().parseBytes(widget.source.bytes);
-        return ExcelPreviewView(workbook: workbook, texts: texts, theme: theme);
-
-      case PreviewType.docx:
-        final document = DocxParser().parseBytes(widget.source.bytes);
-        return DocxPreviewView(
-          document: document,
-          theme: theme,
-          onLinkTap: widget.onLinkTap,
-        );
-
-      case PreviewType.unsupported:
-        return UnsupportedFileView(
-          title: texts.unsupportedFileTitle,
-          message: texts.unsupportedFileMessage,
-        );
-    }
-  }
-
-  PreviewType _detectType(PreviewSource source) {
-    final fileName = source.fileName?.toLowerCase();
-
-    if (fileName != null && fileName.endsWith('.xlsx')) {
-      return PreviewType.xlsx;
-    }
-
-    if (fileName != null && fileName.endsWith('.csv')) {
-      return PreviewType.csv;
-    }
-
-    if (fileName != null && fileName.endsWith('.docx')) {
-      return PreviewType.docx;
-    }
-
-    if (source.mimeType ==
-        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet') {
-      return PreviewType.xlsx;
-    }
-
-    if (source.mimeType == 'text/csv' || source.mimeType == 'application/csv') {
-      return PreviewType.csv;
-    }
-
-    if (source.mimeType ==
-        'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
-      return PreviewType.docx;
-    }
-
-    return PreviewType.unsupported;
+  Widget _widgetForContent(
+    PreviewContent content, {
+    required FilePreviewKitTexts texts,
+    required ThemeData theme,
+  }) {
+    return switch (content) {
+      XlsxPreviewContent(:final workbook) => ExcelPreviewView(
+        workbook: workbook,
+        texts: texts,
+        theme: theme,
+      ),
+      CsvPreviewContent(:final workbook) => ExcelPreviewView(
+        workbook: workbook,
+        texts: texts,
+        theme: theme,
+      ),
+      DocxPreviewContent(:final document) => DocxPreviewView(
+        document: document,
+        theme: theme,
+        onLinkTap: widget.onLinkTap,
+      ),
+      UnsupportedPreviewContent() => UnsupportedFileView(
+        title: texts.unsupportedFileTitle,
+        message: texts.unsupportedFileMessage,
+      ),
+    };
   }
 
   FilePreviewKitTexts _resolveTexts(BuildContext context) {

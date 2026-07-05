@@ -53,8 +53,16 @@ void main() {
         ],
       ]);
 
-      final left = ExcelBorderResolver.resolve(sheet, rowIndex: 0, columnIndex: 0);
-      final right = ExcelBorderResolver.resolve(sheet, rowIndex: 0, columnIndex: 1);
+      final left = ExcelBorderResolver.resolve(
+        sheet,
+        rowIndex: 0,
+        columnIndex: 0,
+      );
+      final right = ExcelBorderResolver.resolve(
+        sheet,
+        rowIndex: 0,
+        columnIndex: 1,
+      );
 
       expect(left.right, isNull);
       expect(right.left, thinBlue);
@@ -78,8 +86,16 @@ void main() {
         ],
       ]);
 
-      final left = ExcelBorderResolver.resolve(sheet, rowIndex: 0, columnIndex: 0);
-      final right = ExcelBorderResolver.resolve(sheet, rowIndex: 0, columnIndex: 1);
+      final left = ExcelBorderResolver.resolve(
+        sheet,
+        rowIndex: 0,
+        columnIndex: 0,
+      );
+      final right = ExcelBorderResolver.resolve(
+        sheet,
+        rowIndex: 0,
+        columnIndex: 1,
+      );
 
       expect(left.right, isNull);
       expect(right.left, thickBlue);
@@ -103,10 +119,7 @@ void main() {
             cell(
               row: 0,
               column: 0,
-              borders: const ExcelCellBorders(
-                left: thinBlue,
-                right: thinBlue,
-              ),
+              borders: const ExcelCellBorders(left: thinBlue, right: thinBlue),
             ),
             cell(row: 0, column: 1),
             cell(row: 0, column: 2),

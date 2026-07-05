@@ -21,62 +21,76 @@ class ExcelBorderResolver {
     final endRow = mergeRegion?.endRow ?? rowIndex;
     final endColumn = mergeRegion?.endColumn ?? columnIndex;
 
-    final left = _borderAt(sheet, originRow, originColumn, (borders) => borders.left);
+    final left = _borderAt(
+      sheet,
+      originRow,
+      originColumn,
+      (borders) => borders.left,
+    );
     final right =
         _borderAt(sheet, originRow, endColumn, (borders) => borders.right) ??
         _borderAt(sheet, originRow, originColumn, (borders) => borders.right);
-    final top = _borderAt(sheet, originRow, originColumn, (borders) => borders.top);
+    final top = _borderAt(
+      sheet,
+      originRow,
+      originColumn,
+      (borders) => borders.top,
+    );
     final bottom =
         _borderAt(sheet, endRow, originColumn, (borders) => borders.bottom) ??
         _borderAt(sheet, originRow, originColumn, (borders) => borders.bottom);
 
     return ExcelCellBorders(
-      left: _ownsEdge(
-        own: left,
-        neighbor: _borderAt(
-          sheet,
-          originRow,
-          originColumn - 1,
-          (borders) => borders.right,
-        ),
-        ownWinsTie: true,
-      )
+      left:
+          _ownsEdge(
+            own: left,
+            neighbor: _borderAt(
+              sheet,
+              originRow,
+              originColumn - 1,
+              (borders) => borders.right,
+            ),
+            ownWinsTie: true,
+          )
           ? left
           : null,
-      right: _ownsEdge(
-        own: right,
-        neighbor: _borderAt(
-          sheet,
-          originRow,
-          endColumn + 1,
-          (borders) => borders.left,
-        ),
-        ownWinsTie: false,
-      )
+      right:
+          _ownsEdge(
+            own: right,
+            neighbor: _borderAt(
+              sheet,
+              originRow,
+              endColumn + 1,
+              (borders) => borders.left,
+            ),
+            ownWinsTie: false,
+          )
           ? right
           : null,
-      top: _ownsEdge(
-        own: top,
-        neighbor: _borderAt(
-          sheet,
-          originRow - 1,
-          originColumn,
-          (borders) => borders.bottom,
-        ),
-        ownWinsTie: true,
-      )
+      top:
+          _ownsEdge(
+            own: top,
+            neighbor: _borderAt(
+              sheet,
+              originRow - 1,
+              originColumn,
+              (borders) => borders.bottom,
+            ),
+            ownWinsTie: true,
+          )
           ? top
           : null,
-      bottom: _ownsEdge(
-        own: bottom,
-        neighbor: _borderAt(
-          sheet,
-          endRow + 1,
-          originColumn,
-          (borders) => borders.top,
-        ),
-        ownWinsTie: false,
-      )
+      bottom:
+          _ownsEdge(
+            own: bottom,
+            neighbor: _borderAt(
+              sheet,
+              endRow + 1,
+              originColumn,
+              (borders) => borders.top,
+            ),
+            ownWinsTie: false,
+          )
           ? bottom
           : null,
     );

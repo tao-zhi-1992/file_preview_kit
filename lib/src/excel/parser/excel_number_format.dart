@@ -46,10 +46,7 @@ class ExcelNumberFormat {
   ];
 
   /// Resolves a format code from [numFmtId] and custom [numFmts].
-  static String? resolveFormatCode(
-    int numFmtId,
-    Map<int, String> numFmts,
-  ) {
+  static String? resolveFormatCode(int numFmtId, Map<int, String> numFmts) {
     return numFmts[numFmtId] ?? builtInFormats[numFmtId];
   }
 
@@ -113,9 +110,11 @@ class ExcelNumberFormat {
   static DateTime _excelDateTime(double serial) {
     const millisecondsPerDay = 24 * 60 * 60 * 1000;
     final totalMilliseconds = (serial * millisecondsPerDay).round();
-    return DateTime(1899, 12, 30).add(
-      Duration(milliseconds: totalMilliseconds),
-    );
+    return DateTime(
+      1899,
+      12,
+      30,
+    ).add(Duration(milliseconds: totalMilliseconds));
   }
 
   static String _formatDateTime(double serial, String formatCode) {

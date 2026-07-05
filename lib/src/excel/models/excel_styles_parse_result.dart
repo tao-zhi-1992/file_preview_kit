@@ -10,8 +10,5 @@ class ExcelStylesParseResult {
     required this.numberFormats,
   });
 
-  static const empty = ExcelStylesParseResult(
-    styles: [],
-    numberFormats: [],
-  );
+  static const empty = ExcelStylesParseResult(styles: [], numberFormats: []);
 }

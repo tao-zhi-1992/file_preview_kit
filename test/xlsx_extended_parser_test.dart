@@ -6,10 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  Uint8List workbookBytes({
-    required String sheetXml,
-    String? stylesXml,
-  }) {
+  Uint8List workbookBytes({required String sheetXml, String? stylesXml}) {
     final archive = Archive()
       ..addFile(
         ArchiveFile.string(

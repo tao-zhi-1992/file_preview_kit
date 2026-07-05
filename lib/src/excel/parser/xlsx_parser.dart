@@ -19,6 +19,9 @@ import 'styles_reader.dart';
 
 /// Parses XLSX package bytes into an [ExcelWorkbook].
 class XlsxParser {
+  /// Creates an XLSX parser.
+  const XlsxParser();
+
   /// Parses [bytes] and returns worksheets in workbook order.
   ExcelWorkbook parseBytes(Uint8List bytes) {
     if (bytes.isEmpty) {
@@ -54,10 +57,7 @@ class XlsxParser {
       final themeXml = _readThemeXml(archive, relationshipsXml);
       final themeColors = ExcelThemeColors.parse(themeXml);
 
-      final stylesXml = _readArchiveText(
-        archive,
-        'xl/styles.xml',
-      );
+      final stylesXml = _readArchiveText(archive, 'xl/styles.xml');
 
       final stylesResult = stylesXml == null
           ? ExcelStylesParseResult.empty

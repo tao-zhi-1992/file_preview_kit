@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 
 import '../../core/file_preview_kit_theme.dart';
 import '../../core/file_preview_kit_texts.dart';
@@ -28,11 +29,19 @@ class ExcelPreviewView extends StatelessWidget {
   Widget build(BuildContext context) {
     return Theme(
       data: theme ?? FilePreviewKitTheme.light,
-      child: Builder(builder: _buildContent),
+      child: _ExcelPreviewContent(workbook: workbook, texts: texts),
     );
   }
+}
 
-  Widget _buildContent(BuildContext context) {
+class _ExcelPreviewContent extends StatelessWidget {
+  final ExcelWorkbook workbook;
+  final FilePreviewKitTexts? texts;
+
+  const _ExcelPreviewContent({required this.workbook, required this.texts});
+
+  @override
+  Widget build(BuildContext context) {
     final resolvedTexts =
         texts ?? FilePreviewKitTexts.resolve(Localizations.localeOf(context));
 
@@ -73,11 +82,12 @@ class _SheetTabBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final controller = DefaultTabController.of(context);
+    final animation = controller.animation ?? kAlwaysCompleteAnimation;
 
     return AnimatedBuilder(
-      animation: controller.animation!,
+      animation: animation,
       builder: (context, _) {
-        final selectedIndex = controller.animation!.value.round();
+        final selectedIndex = animation.value.round();
 
         return TabBar(
           isScrollable: true,
@@ -121,40 +131,113 @@ class _SheetTab extends StatelessWidget {
       color: theme.colorScheme.onSurface,
       fontWeight: FontWeight.w600,
     );
-    final textPainter = TextPainter(
-      text: TextSpan(text: label, style: selectedStyle),
-      textDirection: Directionality.of(context),
-      textScaler: MediaQuery.textScalerOf(context),
-      maxLines: 1,
-    )..layout();
-    final labelWidth = textPainter.width;
-    textPainter.dispose();
 
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        AnimatedContainer(
-          key: dotKey,
-          duration: const Duration(milliseconds: 180),
-          curve: Curves.easeOut,
-          width: 6,
-          height: 6,
-          decoration: BoxDecoration(
-            color: selected ? theme.colorScheme.primary : Colors.transparent,
-            shape: BoxShape.circle,
-          ),
+        _SheetTabDot(
+          dotKey: dotKey,
+          selected: selected,
+          primaryColor: theme.colorScheme.primary,
         ),
         const SizedBox(width: 8),
-        SizedBox(
-          width: labelWidth,
-          child: AnimatedDefaultTextStyle(
-            duration: const Duration(milliseconds: 180),
-            curve: Curves.easeOut,
-            style: selected ? selectedStyle : normalStyle,
-            child: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis),
-          ),
+        _SheetTabLabel(
+          label: label,
+          selected: selected,
+          normalStyle: normalStyle,
+          selectedStyle: selectedStyle,
         ),
       ],
+    );
+  }
+}
+
+class _SheetTabDot extends StatelessWidget {
+  final Key dotKey;
+  final bool selected;
+  final Color primaryColor;
+
+  const _SheetTabDot({
+    required this.dotKey,
+    required this.selected,
+    required this.primaryColor,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedContainer(
+      key: dotKey,
+      duration: const Duration(milliseconds: 180),
+      curve: Curves.easeOut,
+      width: 6,
+      height: 6,
+      decoration: BoxDecoration(
+        color: selected ? primaryColor : Colors.transparent,
+        shape: BoxShape.circle,
+      ),
+    );
+  }
+}
+
+class _SheetTabLabel extends StatefulWidget {
+  final String label;
+  final bool selected;
+  final TextStyle normalStyle;
+  final TextStyle selectedStyle;
+
+  const _SheetTabLabel({
+    required this.label,
+    required this.selected,
+    required this.normalStyle,
+    required this.selectedStyle,
+  });
+
+  @override
+  State<_SheetTabLabel> createState() => _SheetTabLabelState();
+}
+
+class _SheetTabLabelState extends State<_SheetTabLabel> {
+  late double _labelWidth;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _labelWidth = _measureLabelWidth();
+  }
+
+  @override
+  void didUpdateWidget(covariant _SheetTabLabel oldWidget) {
+    super.didUpdateWidget(oldWidget);
+
+    if (oldWidget.label != widget.label ||
+        oldWidget.selectedStyle != widget.selectedStyle) {
+      _labelWidth = _measureLabelWidth();
+    }
+  }
+
+  double _measureLabelWidth() {
+    final textPainter = TextPainter(
+      text: TextSpan(text: widget.label, style: widget.selectedStyle),
+      textDirection: Directionality.of(context),
+      textScaler: MediaQuery.textScalerOf(context),
+      maxLines: 1,
+    )..layout();
+
+    final width = textPainter.width;
+    textPainter.dispose();
+    return width;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: _labelWidth,
+      child: AnimatedDefaultTextStyle(
+        duration: const Duration(milliseconds: 180),
+        curve: Curves.easeOut,
+        style: widget.selected ? widget.selectedStyle : widget.normalStyle,
+        child: Text(widget.label, maxLines: 1, overflow: TextOverflow.ellipsis),
+      ),
     );
   }
 }

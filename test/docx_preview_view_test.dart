@@ -5,6 +5,21 @@ import 'package:file_preview_kit/file_preview_kit.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+Padding findParagraphPadding(
+  WidgetTester tester, {
+  required EdgeInsets expectedPadding,
+}) {
+  return tester
+      .widgetList<Padding>(find.byType(Padding))
+      .singleWhere((padding) => padding.padding == expectedPadding);
+}
+
+Padding findParagraphPaddingWithLeft(WidgetTester tester, double left) {
+  return tester
+      .widgetList<Padding>(find.byType(Padding))
+      .firstWhere((padding) => (padding.padding as EdgeInsets).left == left);
+}
+
 void main() {
   testWidgets('renders paragraph formatting and alignment', (tester) async {
     const document = DocxDocument(
@@ -56,9 +71,10 @@ void main() {
     expect(children[3].style!.color, const Color(0xFFFF0000));
     expect(children[3].style!.backgroundColor, const Color(0xFFFFFF00));
     expect(root.style!.height, 2);
-    final padding = tester
-        .widgetList<Padding>(find.byType(Padding))
-        .singleWhere((padding) => padding.child is RichText);
+    final padding = findParagraphPadding(
+      tester,
+      expectedPadding: const EdgeInsets.only(top: 12, bottom: 6),
+    );
     expect(padding.padding, const EdgeInsets.only(top: 12, bottom: 6));
   });
 
@@ -137,12 +153,12 @@ void main() {
       expect(titleSpan.children!.single.style!.fontSize, 28);
 
       // First paragraph padding
-      final paddings = tester
-          .widgetList<Padding>(find.byType(Padding))
-          .where((padding) => padding.child is RichText)
-          .toList();
+      final paragraphPadding = findParagraphPadding(
+        tester,
+        expectedPadding: const EdgeInsets.only(left: 0, top: 20, bottom: 10),
+      );
       expect(
-        paddings[0].padding,
+        paragraphPadding.padding,
         const EdgeInsets.only(left: 0, top: 20, bottom: 10),
       );
 
@@ -333,9 +349,7 @@ void main() {
     expect(marker.softWrap, isFalse);
     expect(marker.style!.color, const Color(0xFF365F91));
     expect(find.byType(SizedBox), findsWidgets);
-    final paragraphPadding = tester
-        .widgetList<Padding>(find.byType(Padding))
-        .firstWhere((padding) => padding.child is Row);
+    final paragraphPadding = findParagraphPaddingWithLeft(tester, 24);
     expect((paragraphPadding.padding as EdgeInsets).left, 24);
   });
 
@@ -476,9 +490,10 @@ void main() {
     await tester.tap(find.text('Example'));
 
     expect(opened, ['https://example.test/guide']);
-    final padding = tester
-        .widgetList<Padding>(find.byType(Padding))
-        .singleWhere((padding) => padding.child is RichText);
+    final padding = findParagraphPadding(
+      tester,
+      expectedPadding: const EdgeInsets.only(left: 20, right: 10, bottom: 8),
+    );
     expect(
       padding.padding,
       const EdgeInsets.only(left: 20, right: 10, bottom: 8),
@@ -554,9 +569,7 @@ void main() {
     final firstLine = tester.widget<RichText>(find.byType(RichText).first);
     final prefix = (firstLine.text as TextSpan).children!.first as WidgetSpan;
     expect((prefix.child as SizedBox).width, 16);
-    final listPadding = tester
-        .widgetList<Padding>(find.byType(Padding))
-        .firstWhere((padding) => padding.child is Row);
+    final listPadding = findParagraphPaddingWithLeft(tester, 48);
     expect((listPadding.padding as EdgeInsets).left, 48);
   });
 }

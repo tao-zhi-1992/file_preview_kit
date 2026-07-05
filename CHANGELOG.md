@@ -4,6 +4,8 @@
 - XLSX number and date formatting via `numFmt`.
 - XLSX column widths loaded from workbook metadata.
 - XLSX merged cell rendering in the grid.
+- Added `FilePreviewLoader` and `PreviewContent` for type detection and parsing outside widgets.
+- Changed: internal readability refactor across Excel grid, preview tabs, file preview loader, DOCX views, and parsers (no breaking API changes).
 
 ## 0.0.1
 

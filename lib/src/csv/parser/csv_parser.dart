@@ -11,6 +11,9 @@ import '../../excel/models/excel_workbook.dart';
 
 /// Parses UTF-8 CSV bytes into an [ExcelWorkbook].
 class CsvParser {
+  /// Creates a CSV parser.
+  const CsvParser();
+
   /// Parses [bytes] and returns a single-sheet workbook.
   ExcelWorkbook parseBytes(Uint8List bytes) {
     if (bytes.isEmpty) {

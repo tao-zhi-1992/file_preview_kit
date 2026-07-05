@@ -109,7 +109,50 @@ class _DocxParagraphView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final baseStyle = _textStyle(context);
+    final baseStyle = _paragraphTextStyle(context, paragraph);
+    final layout = _DocxParagraphLayout.resolve(paragraph, baseStyle);
+    final content = _DocxParagraphRichText(
+      paragraph: paragraph,
+      baseStyle: baseStyle,
+      firstLineIndent: layout.firstLineIndent,
+      onLinkTap: onLinkTap,
+    );
+
+    return Padding(
+      padding: layout.padding,
+      child: layout.hasList
+          ? _DocxListParagraphRow(
+              marker: layout.listMarker,
+              hangingIndent: layout.hangingIndent,
+              markerStyle: layout.markerStyle,
+              content: content,
+            )
+          : content,
+    );
+  }
+}
+
+class _DocxParagraphLayout {
+  final EdgeInsets padding;
+  final bool hasList;
+  final String listMarker;
+  final double hangingIndent;
+  final TextStyle markerStyle;
+  final double firstLineIndent;
+
+  const _DocxParagraphLayout({
+    required this.padding,
+    required this.hasList,
+    required this.listMarker,
+    required this.hangingIndent,
+    required this.markerStyle,
+    required this.firstLineIndent,
+  });
+
+  factory _DocxParagraphLayout.resolve(
+    DocxParagraph paragraph,
+    TextStyle baseStyle,
+  ) {
     final list = paragraph.list;
     final style = paragraph.style;
     final defaultSpacingBefore = switch (style.kind) {
@@ -129,17 +172,107 @@ class _DocxParagraphView extends StatelessWidget {
         style.hangingIndent ??
         list?.hangingIndent ??
         (list == null ? 0.0 : 24.0);
-    final marker = list == null
-        ? null
+    final listMarker = list == null
+        ? ''
         : list.marker ??
               (list.type == DocxListType.bullet
-                  ? _bullet(list.level)
+                  ? const ['•', '◦', '▪'][list.level % 3]
                   : '${list.number ?? 1}.');
     final markerStyle = paragraph.runs.isEmpty
         ? baseStyle
         : baseStyle.merge(_runTextStyle(paragraph.runs.first, null));
-    final firstLineIndent = style.firstLineIndent ?? 0;
-    final content = RichText(
+
+    return _DocxParagraphLayout(
+      padding: EdgeInsets.only(
+        left: list == null
+            ? math.max(0, indentStart)
+            : math.max(0, indentStart - hangingIndent),
+        right: math.max(0, style.indentEnd ?? 0),
+        top: style.spacingBefore ?? defaultSpacingBefore,
+        bottom: style.spacingAfter ?? defaultSpacingAfter,
+      ),
+      hasList: list != null,
+      listMarker: listMarker,
+      hangingIndent: hangingIndent,
+      markerStyle: markerStyle,
+      firstLineIndent: style.firstLineIndent ?? 0,
+    );
+  }
+}
+
+class _DocxListParagraphRow extends StatelessWidget {
+  final String marker;
+  final double hangingIndent;
+  final TextStyle markerStyle;
+  final Widget content;
+
+  const _DocxListParagraphRow({
+    required this.marker,
+    required this.hangingIndent,
+    required this.markerStyle,
+    required this.content,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _DocxListMarker(
+          marker: marker,
+          hangingIndent: hangingIndent,
+          markerStyle: markerStyle,
+        ),
+        const SizedBox(width: 8),
+        Expanded(child: content),
+      ],
+    );
+  }
+}
+
+class _DocxListMarker extends StatelessWidget {
+  final String marker;
+  final double hangingIndent;
+  final TextStyle markerStyle;
+
+  const _DocxListMarker({
+    required this.marker,
+    required this.hangingIndent,
+    required this.markerStyle,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return ConstrainedBox(
+      constraints: BoxConstraints(minWidth: hangingIndent),
+      child: Text(
+        marker,
+        textAlign: TextAlign.right,
+        softWrap: false,
+        style: markerStyle,
+      ),
+    );
+  }
+}
+
+class _DocxParagraphRichText extends StatelessWidget {
+  final DocxParagraph paragraph;
+  final TextStyle baseStyle;
+  final double firstLineIndent;
+  final ValueChanged<String>? onLinkTap;
+
+  const _DocxParagraphRichText({
+    required this.paragraph,
+    required this.baseStyle,
+    required this.firstLineIndent,
+    required this.onLinkTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final style = paragraph.style;
+
+    return RichText(
       textAlign: switch (style.align) {
         DocxParagraphAlignment.left => TextAlign.left,
         DocxParagraphAlignment.center => TextAlign.center,
@@ -150,86 +283,55 @@ class _DocxParagraphView extends StatelessWidget {
       text: TextSpan(
         style: baseStyle,
         children: [
-          if (list == null && firstLineIndent > 0)
+          if (paragraph.list == null && firstLineIndent > 0)
             WidgetSpan(child: SizedBox(width: firstLineIndent)),
           for (final run in paragraph.runs)
             _textSpanForRun(run, baseStyle, onLinkTap),
         ],
       ),
     );
-
-    return Padding(
-      padding: EdgeInsets.only(
-        left: list == null
-            ? math.max(0, indentStart)
-            : math.max(0, indentStart - hangingIndent),
-        right: math.max(0, style.indentEnd ?? 0),
-        top: style.spacingBefore ?? defaultSpacingBefore,
-        bottom: style.spacingAfter ?? defaultSpacingAfter,
-      ),
-      child: list == null
-          ? content
-          : Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                ConstrainedBox(
-                  constraints: BoxConstraints(minWidth: hangingIndent),
-                  child: Text(
-                    marker!,
-                    textAlign: TextAlign.right,
-                    softWrap: false,
-                    style: markerStyle,
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(child: content),
-              ],
-            ),
-    );
   }
+}
 
-  TextStyle _textStyle(BuildContext context) {
-    final normal = DefaultTextStyle.of(context).style.copyWith(
-      fontSize: 14.6667,
-      height: paragraph.style.lineHeight ?? 1.15,
-    );
+TextStyle _paragraphTextStyle(BuildContext context, DocxParagraph paragraph) {
+  final normal = DefaultTextStyle.of(context).style.copyWith(
+    fontSize: 14.6667,
+    height: paragraph.style.lineHeight ?? 1.15,
+  );
 
-    final style = switch (paragraph.style.kind) {
-      DocxBuiltinKind.title => normal.copyWith(
-        fontSize: 37.3333,
-        fontWeight: FontWeight.bold,
-      ),
-      DocxBuiltinKind.subtitle => normal.copyWith(
-        fontSize: 16,
-        fontStyle: FontStyle.italic,
-      ),
-      DocxBuiltinKind.heading1 => normal.copyWith(
-        fontSize: 21.3333,
-        fontWeight: FontWeight.bold,
-      ),
-      DocxBuiltinKind.heading2 => normal.copyWith(
-        fontSize: 17.3333,
-        fontWeight: FontWeight.bold,
-      ),
-      DocxBuiltinKind.heading3 => normal.copyWith(
-        fontSize: 16,
-        fontWeight: FontWeight.bold,
-      ),
-      _ => normal,
-    };
-    final lineSpacing = paragraph.style.lineSpacing;
-    if (lineSpacing == null) {
-      return style;
-    }
-    final height = lineSpacing / (style.fontSize ?? 14.6667);
-    return style.copyWith(
-      height: paragraph.style.lineSpacingAtLeast
-          ? math.max(style.height ?? 1, height)
-          : height,
-    );
+  final style = switch (paragraph.style.kind) {
+    DocxBuiltinKind.title => normal.copyWith(
+      fontSize: 37.3333,
+      fontWeight: FontWeight.bold,
+    ),
+    DocxBuiltinKind.subtitle => normal.copyWith(
+      fontSize: 16,
+      fontStyle: FontStyle.italic,
+    ),
+    DocxBuiltinKind.heading1 => normal.copyWith(
+      fontSize: 21.3333,
+      fontWeight: FontWeight.bold,
+    ),
+    DocxBuiltinKind.heading2 => normal.copyWith(
+      fontSize: 17.3333,
+      fontWeight: FontWeight.bold,
+    ),
+    DocxBuiltinKind.heading3 => normal.copyWith(
+      fontSize: 16,
+      fontWeight: FontWeight.bold,
+    ),
+    _ => normal,
+  };
+  final lineSpacing = paragraph.style.lineSpacing;
+  if (lineSpacing == null) {
+    return style;
   }
-
-  String _bullet(int level) => const ['•', '◦', '▪'][level % 3];
+  final height = lineSpacing / (style.fontSize ?? 14.6667);
+  return style.copyWith(
+    height: paragraph.style.lineSpacingAtLeast
+        ? math.max(style.height ?? 1, height)
+        : height,
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -339,6 +441,9 @@ InlineSpan _textSpanForRun(
 
 TextStyle _runTextStyle(DocxTextRun run, String? target) {
   final runDecoration = _decoration(run.style);
+  final runColor = run.style.color;
+  final highlightColor = run.style.highlightColor;
+
   return TextStyle(
     fontWeight: run.style.bold
         ? FontWeight.bold
@@ -354,14 +459,12 @@ TextStyle _runTextStyle(DocxTextRun run, String? target) {
           ]),
     fontSize: run.style.fontSize,
     fontFamily: run.style.fontFamily,
-    color: run.style.color == null
+    color: runColor == null
         ? target == null
               ? null
               : Colors.blue
-        : Color(run.style.color!),
-    backgroundColor: run.style.highlightColor == null
-        ? null
-        : Color(run.style.highlightColor!),
+        : Color(runColor),
+    backgroundColor: highlightColor == null ? null : Color(highlightColor),
     letterSpacing: run.style.allCaps || run.style.smallCaps ? 1.2 : null,
   );
 }
@@ -398,41 +501,67 @@ class _DocxImageView extends StatelessWidget {
   Widget build(BuildContext context) {
     if (image.bytes.isEmpty ||
         !_supportedContentTypes.contains(image.contentType)) {
-      return _brokenImage(context);
+      return const _DocxBrokenImage();
     }
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
-      child: Builder(
-        builder: (context) {
-          final child = Align(
-            alignment: Alignment.centerLeft,
-            child: Semantics(
-              label: image.altText,
-              image: true,
-              child: Image.memory(
-                image.bytes,
-                key: const ValueKey('docx-image'),
-                width: image.width,
-                height: image.height,
-                fit: BoxFit.contain,
-                errorBuilder: (context, error, stackTrace) =>
-                    _brokenImage(context),
-              ),
-            ),
-          );
-          return image.href == null || onLinkTap == null
-              ? child
-              : GestureDetector(
-                  onTap: () => onLinkTap!(image.href!),
-                  child: child,
-                );
-        },
+      child: _DocxLinkedImage(image: image, onLinkTap: onLinkTap),
+    );
+  }
+}
+
+class _DocxLinkedImage extends StatelessWidget {
+  final DocxImage image;
+  final ValueChanged<String>? onLinkTap;
+
+  const _DocxLinkedImage({required this.image, this.onLinkTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final href = image.href;
+    final onTap = onLinkTap;
+    final content = _DocxImageContent(image: image);
+
+    if (href == null || onTap == null) {
+      return content;
+    }
+
+    return GestureDetector(onTap: () => onTap(href), child: content);
+  }
+}
+
+class _DocxImageContent extends StatelessWidget {
+  final DocxImage image;
+
+  const _DocxImageContent({required this.image});
+
+  @override
+  Widget build(BuildContext context) {
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Semantics(
+        label: image.altText,
+        image: true,
+        child: Image.memory(
+          image.bytes,
+          key: const ValueKey('docx-image'),
+          width: image.width,
+          height: image.height,
+          fit: BoxFit.contain,
+          errorBuilder: (context, error, stackTrace) =>
+              const _DocxBrokenImage(),
+        ),
       ),
     );
   }
+}
 
-  Widget _brokenImage(BuildContext context) {
+class _DocxBrokenImage extends StatelessWidget {
+  const _DocxBrokenImage();
+
+  @override
+  Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: Icon(
@@ -612,24 +741,51 @@ class _DocxReferencesView extends StatelessWidget {
         const Divider(),
         Text(title, style: Theme.of(context).textTheme.titleMedium),
         for (final entry in entries)
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Padding(
-                padding: const EdgeInsets.only(top: 8, right: 8),
-                child: Text(entry.label),
-              ),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    for (final block in entry.blocks)
-                      _DocxBlockView(block: block, onLinkTap: onLinkTap),
-                  ],
-                ),
-              ),
-            ],
+          _DocxReferenceEntryView(entry: entry, onLinkTap: onLinkTap),
+      ],
+    );
+  }
+}
+
+class _DocxReferenceEntryView extends StatelessWidget {
+  final _DocxReferenceEntry entry;
+  final ValueChanged<String>? onLinkTap;
+
+  const _DocxReferenceEntryView({required this.entry, this.onLinkTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(top: 8, right: 8),
+          child: Text(entry.label),
+        ),
+        Expanded(
+          child: _DocxReferenceBlocks(
+            blocks: entry.blocks,
+            onLinkTap: onLinkTap,
           ),
+        ),
+      ],
+    );
+  }
+}
+
+class _DocxReferenceBlocks extends StatelessWidget {
+  final List<DocxBlock> blocks;
+  final ValueChanged<String>? onLinkTap;
+
+  const _DocxReferenceBlocks({required this.blocks, this.onLinkTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        for (final block in blocks)
+          _DocxBlockView(block: block, onLinkTap: onLinkTap),
       ],
     );
   }

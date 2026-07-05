@@ -6,6 +6,7 @@ import 'package:two_dimensional_scrollables/two_dimensional_scrollables.dart';
 import '../../core/file_preview_kit_texts.dart';
 import '../models/excel_cell_borders.dart';
 import '../models/excel_cell_style.dart';
+import '../models/excel_merge_region.dart';
 import '../models/excel_sheet.dart';
 import '../parser/excel_border_resolver.dart';
 
@@ -185,53 +186,28 @@ class _ExcelGridViewState extends State<ExcelGridView>
 
         final rowIndex = row - 1;
         final columnIndex = column - 1;
-        final mergeRegion = widget.sheet.mergeRegionAt(rowIndex, columnIndex);
-        final originRow = mergeRegion?.startRow ?? rowIndex;
-        final originColumn = mergeRegion?.startColumn ?? columnIndex;
-        final cell = widget.sheet.cellAt(originRow, originColumn);
-        final selected = _selection?.isCell(rowIndex, columnIndex) ?? false;
-        final highlighted =
-            selected ||
-            (_selection?.isRow(rowIndex) ?? false) ||
-            (_selection?.isColumn(columnIndex) ?? false);
-
-        final tableMergeRow = mergeRegion == null
-            ? null
-            : mergeRegion.startRow + 1;
-        final tableMergeColumn = mergeRegion == null
-            ? null
-            : mergeRegion.startColumn + 1;
-
-        final displayBorders = ExcelBorderResolver.resolve(
+        final model = _GridCellModel.resolve(
           widget.sheet,
-          rowIndex: originRow,
-          columnIndex: originColumn,
-          mergeRegion: mergeRegion,
+          _selection,
+          rowIndex,
+          columnIndex,
         );
 
         return TableViewCell(
-          rowMergeStart:
-              mergeRegion != null && mergeRegion.rowSpan > 1 ? tableMergeRow : null,
-          rowMergeSpan:
-              mergeRegion != null && mergeRegion.rowSpan > 1
-              ? mergeRegion.rowSpan
-              : null,
-          columnMergeStart:
-              mergeRegion != null && mergeRegion.columnSpan > 1
-              ? tableMergeColumn
-              : null,
-          columnMergeSpan:
-              mergeRegion != null && mergeRegion.columnSpan > 1
-              ? mergeRegion.columnSpan
-              : null,
+          rowMergeStart: model.rowMergeStart,
+          rowMergeSpan: model.rowMergeSpan,
+          columnMergeStart: model.columnMergeStart,
+          columnMergeSpan: model.columnMergeSpan,
           child: _BodyCell(
-            key: ValueKey('excel-cell-$originRow-$originColumn'),
-            text: cell?.displayValue ?? '',
-            style: cell?.style ?? ExcelCellStyle.empty,
-            borders: displayBorders,
-            selected: selected,
-            highlighted: highlighted,
-            onTap: () => _selectCell(rowIndex, columnIndex),
+            key: ValueKey(
+              'excel-cell-${model.originRow}-${model.originColumn}',
+            ),
+            text: model.text,
+            style: model.style,
+            borders: model.borders,
+            selected: model.selected,
+            highlighted: model.highlighted,
+            onTap: () => _selectCell(model.rowIndex, model.columnIndex),
           ),
         );
       },
@@ -379,6 +355,107 @@ class _GridSelection {
 
 enum _ResizeAxis { row, column }
 
+class _GridCellModel {
+  final String text;
+  final ExcelCellStyle style;
+  final ExcelCellBorders borders;
+  final bool selected;
+  final bool highlighted;
+  final int rowIndex;
+  final int columnIndex;
+  final int originRow;
+  final int originColumn;
+  final int? rowMergeStart;
+  final int? rowMergeSpan;
+  final int? columnMergeStart;
+  final int? columnMergeSpan;
+
+  const _GridCellModel({
+    required this.text,
+    required this.style,
+    required this.borders,
+    required this.selected,
+    required this.highlighted,
+    required this.rowIndex,
+    required this.columnIndex,
+    required this.originRow,
+    required this.originColumn,
+    required this.rowMergeStart,
+    required this.rowMergeSpan,
+    required this.columnMergeStart,
+    required this.columnMergeSpan,
+  });
+
+  factory _GridCellModel.resolve(
+    ExcelSheet sheet,
+    _GridSelection? selection,
+    int rowIndex,
+    int columnIndex,
+  ) {
+    final mergeRegion = sheet.mergeRegionAt(rowIndex, columnIndex);
+    final originRow = mergeRegion?.startRow ?? rowIndex;
+    final originColumn = mergeRegion?.startColumn ?? columnIndex;
+    final cell = sheet.cellAt(originRow, originColumn);
+    final selected = selection?.isCell(rowIndex, columnIndex) ?? false;
+    final highlighted =
+        selected ||
+        (selection?.isRow(rowIndex) ?? false) ||
+        (selection?.isColumn(columnIndex) ?? false);
+    final tableMergeRow = mergeRegion == null ? null : mergeRegion.startRow + 1;
+    final tableMergeColumn = mergeRegion == null
+        ? null
+        : mergeRegion.startColumn + 1;
+    final displayBorders = ExcelBorderResolver.resolve(
+      sheet,
+      rowIndex: originRow,
+      columnIndex: originColumn,
+      mergeRegion: mergeRegion,
+    );
+
+    return _GridCellModel(
+      text: cell?.displayValue ?? '',
+      style: cell?.style ?? ExcelCellStyle.empty,
+      borders: displayBorders,
+      selected: selected,
+      highlighted: highlighted,
+      rowIndex: rowIndex,
+      columnIndex: columnIndex,
+      originRow: originRow,
+      originColumn: originColumn,
+      rowMergeStart: _mergeSpanStart(mergeRegion, tableMergeRow, isRow: true),
+      rowMergeSpan: _mergeSpan(mergeRegion, isRow: true),
+      columnMergeStart: _mergeSpanStart(
+        mergeRegion,
+        tableMergeColumn,
+        isRow: false,
+      ),
+      columnMergeSpan: _mergeSpan(mergeRegion, isRow: false),
+    );
+  }
+
+  static int? _mergeSpanStart(
+    ExcelMergeRegion? mergeRegion,
+    int? tableMergeStart, {
+    required bool isRow,
+  }) {
+    if (mergeRegion == null) {
+      return null;
+    }
+
+    final span = isRow ? mergeRegion.rowSpan : mergeRegion.columnSpan;
+    return span > 1 ? tableMergeStart : null;
+  }
+
+  static int? _mergeSpan(ExcelMergeRegion? mergeRegion, {required bool isRow}) {
+    if (mergeRegion == null) {
+      return null;
+    }
+
+    final span = isRow ? mergeRegion.rowSpan : mergeRegion.columnSpan;
+    return span > 1 ? span : null;
+  }
+}
+
 class _HeaderCell extends StatelessWidget {
   final String text;
   final bool selected;
@@ -407,6 +484,44 @@ class _HeaderCell extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final axis = resizeAxis;
+
+    return Semantics(
+      selected: selected,
+      button: true,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          _ExcelHeaderLabel(text: text, selected: selected, onTap: onTap),
+          if (axis != null)
+            _HeaderResizeHandle(
+              key: resizeHandleKey,
+              resizeAxis: axis,
+              resizeGripKey: resizeGripKey,
+              onResizeStart: onResizeStart,
+              onResizeUpdate: onResizeUpdate,
+              onResizeEnd: onResizeEnd,
+              onResizeCancel: onResizeCancel,
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ExcelHeaderLabel extends StatelessWidget {
+  final String text;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _ExcelHeaderLabel({
+    required this.text,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final backgroundColor = selected
         ? theme.colorScheme.primaryContainer
@@ -415,36 +530,67 @@ class _HeaderCell extends StatelessWidget {
         ? theme.colorScheme.onPrimaryContainer
         : theme.colorScheme.onSurfaceVariant;
 
-    return Semantics(
-      selected: selected,
-      button: true,
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          Material(
-            color: backgroundColor,
-            child: InkWell(
-              onTap: onTap,
-              child: Center(
-                child: Text(
-                  text,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.labelSmall?.copyWith(
-                    fontWeight: FontWeight.w600,
-                    color: textColor,
-                  ),
-                ),
-              ),
-            ),
-          ),
-          if (resizeAxis != null) _buildResizeHandle(context),
-        ],
+    return Material(
+      color: backgroundColor,
+      child: InkWell(
+        onTap: onTap,
+        child: _ExcelHeaderLabelText(
+          text: text,
+          textColor: textColor,
+          textStyle: theme.textTheme.labelSmall,
+        ),
       ),
     );
   }
+}
 
-  Widget _buildResizeHandle(BuildContext context) {
+class _ExcelHeaderLabelText extends StatelessWidget {
+  final String text;
+  final Color textColor;
+  final TextStyle? textStyle;
+
+  const _ExcelHeaderLabelText({
+    required this.text,
+    required this.textColor,
+    required this.textStyle,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Text(
+        text,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: textStyle?.copyWith(
+          fontWeight: FontWeight.w600,
+          color: textColor,
+        ),
+      ),
+    );
+  }
+}
+
+class _HeaderResizeHandle extends StatelessWidget {
+  final Axis resizeAxis;
+  final Key? resizeGripKey;
+  final GestureDragStartCallback? onResizeStart;
+  final GestureDragUpdateCallback? onResizeUpdate;
+  final GestureDragEndCallback? onResizeEnd;
+  final GestureDragCancelCallback? onResizeCancel;
+
+  const _HeaderResizeHandle({
+    super.key,
+    required this.resizeAxis,
+    this.resizeGripKey,
+    this.onResizeStart,
+    this.onResizeUpdate,
+    this.onResizeEnd,
+    this.onResizeCancel,
+  });
+
+  @override
+  Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
     final grip = _HeaderResizeGrip(
       key: resizeGripKey,
@@ -456,41 +602,93 @@ class _HeaderCell extends StatelessWidget {
 
     if (resizeAxis == Axis.horizontal) {
       return Positioned(
-        key: resizeHandleKey,
         top: 0,
         right: 0,
         bottom: 0,
         width: _resizeHandleExtent,
-        child: MouseRegion(
-          cursor: SystemMouseCursors.resizeColumn,
-          child: GestureDetector(
-            behavior: HitTestBehavior.translucent,
-            onHorizontalDragStart: onResizeStart,
-            onHorizontalDragUpdate: onResizeUpdate,
-            onHorizontalDragEnd: onResizeEnd,
-            onHorizontalDragCancel: onResizeCancel,
-            child: Align(alignment: Alignment.centerRight, child: grip),
-          ),
+        child: _HorizontalResizeDragTarget(
+          onResizeStart: onResizeStart,
+          onResizeUpdate: onResizeUpdate,
+          onResizeEnd: onResizeEnd,
+          onResizeCancel: onResizeCancel,
+          child: Align(alignment: Alignment.centerRight, child: grip),
         ),
       );
     }
 
     return Positioned(
-      key: resizeHandleKey,
       left: 0,
       right: 0,
       bottom: 0,
       height: _resizeHandleExtent,
-      child: MouseRegion(
-        cursor: SystemMouseCursors.resizeRow,
-        child: GestureDetector(
-          behavior: HitTestBehavior.translucent,
-          onVerticalDragStart: onResizeStart,
-          onVerticalDragUpdate: onResizeUpdate,
-          onVerticalDragEnd: onResizeEnd,
-          onVerticalDragCancel: onResizeCancel,
-          child: Align(alignment: Alignment.bottomCenter, child: grip),
-        ),
+      child: _VerticalResizeDragTarget(
+        onResizeStart: onResizeStart,
+        onResizeUpdate: onResizeUpdate,
+        onResizeEnd: onResizeEnd,
+        onResizeCancel: onResizeCancel,
+        child: Align(alignment: Alignment.bottomCenter, child: grip),
+      ),
+    );
+  }
+}
+
+class _HorizontalResizeDragTarget extends StatelessWidget {
+  final GestureDragStartCallback? onResizeStart;
+  final GestureDragUpdateCallback? onResizeUpdate;
+  final GestureDragEndCallback? onResizeEnd;
+  final GestureDragCancelCallback? onResizeCancel;
+  final Widget child;
+
+  const _HorizontalResizeDragTarget({
+    required this.onResizeStart,
+    required this.onResizeUpdate,
+    required this.onResizeEnd,
+    required this.onResizeCancel,
+    required this.child,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return MouseRegion(
+      cursor: SystemMouseCursors.resizeColumn,
+      child: GestureDetector(
+        behavior: HitTestBehavior.translucent,
+        onHorizontalDragStart: onResizeStart,
+        onHorizontalDragUpdate: onResizeUpdate,
+        onHorizontalDragEnd: onResizeEnd,
+        onHorizontalDragCancel: onResizeCancel,
+        child: child,
+      ),
+    );
+  }
+}
+
+class _VerticalResizeDragTarget extends StatelessWidget {
+  final GestureDragStartCallback? onResizeStart;
+  final GestureDragUpdateCallback? onResizeUpdate;
+  final GestureDragEndCallback? onResizeEnd;
+  final GestureDragCancelCallback? onResizeCancel;
+  final Widget child;
+
+  const _VerticalResizeDragTarget({
+    required this.onResizeStart,
+    required this.onResizeUpdate,
+    required this.onResizeEnd,
+    required this.onResizeCancel,
+    required this.child,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return MouseRegion(
+      cursor: SystemMouseCursors.resizeRow,
+      child: GestureDetector(
+        behavior: HitTestBehavior.translucent,
+        onVerticalDragStart: onResizeStart,
+        onVerticalDragUpdate: onResizeUpdate,
+        onVerticalDragEnd: onResizeEnd,
+        onVerticalDragCancel: onResizeCancel,
+        child: child,
       ),
     );
   }
@@ -592,55 +790,125 @@ class _BodyCell extends StatelessWidget {
     required this.onTap,
   });
 
+  Color _backgroundColor(ThemeData theme) {
+    final baseBackground = style.backgroundColor ?? theme.colorScheme.surface;
+
+    if (!highlighted) {
+      return baseBackground;
+    }
+
+    return Color.alphaBlend(
+      theme.colorScheme.primary.withValues(alpha: selected ? 0.12 : 0.06),
+      baseBackground,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final baseBackground =
-        style.backgroundColor ?? theme.colorScheme.surface;
-    final backgroundColor = highlighted
-        ? Color.alphaBlend(
-            theme.colorScheme.primary.withValues(
-              alpha: selected ? 0.12 : 0.06,
-            ),
-            baseBackground,
-          )
-        : baseBackground;
 
-    return Semantics(
+    return _ExcelCellSurface(
       selected: highlighted,
+      backgroundColor: _backgroundColor(theme),
+      onTap: onTap,
+      child: _ExcelCellText(
+        text: text,
+        style: style,
+        borders: borders,
+        selected: selected,
+        primaryColor: theme.colorScheme.primary,
+        bodyStyle: theme.textTheme.bodySmall,
+      ),
+    );
+  }
+}
+
+class _ExcelCellSurface extends StatelessWidget {
+  final bool selected;
+  final Color backgroundColor;
+  final VoidCallback onTap;
+  final Widget child;
+
+  const _ExcelCellSurface({
+    required this.selected,
+    required this.backgroundColor,
+    required this.onTap,
+    required this.child,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      selected: selected,
       button: true,
       child: Material(
         color: backgroundColor,
-        child: InkWell(
-          onTap: onTap,
-          child: DecoratedBox(
-            decoration: BoxDecoration(
-              border: selected
-                  ? Border.all(color: theme.colorScheme.primary, width: 1.5)
-                  : borders.toBorder(),
-            ),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              child: Align(
-                alignment: style.alignment,
-                child: Text(
-                  text,
-                  maxLines: style.wrapText ? null : 1,
-                  overflow:
-                      style.wrapText ? TextOverflow.visible : TextOverflow.ellipsis,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    fontWeight:
-                        style.bold ? FontWeight.w600 : FontWeight.normal,
-                    fontStyle:
-                        style.italic ? FontStyle.italic : FontStyle.normal,
-                    fontSize: style.fontSize,
-                    fontFamily: style.fontFamily,
-                    color: style.fontColor,
-                    decoration: _textDecoration(style),
-                  ),
-                ),
-              ),
-            ),
+        child: InkWell(onTap: onTap, child: child),
+      ),
+    );
+  }
+}
+
+class _ExcelCellText extends StatelessWidget {
+  final String text;
+  final ExcelCellStyle style;
+  final ExcelCellBorders borders;
+  final bool selected;
+  final Color primaryColor;
+  final TextStyle? bodyStyle;
+
+  const _ExcelCellText({
+    required this.text,
+    required this.style,
+    required this.borders,
+    required this.selected,
+    required this.primaryColor,
+    required this.bodyStyle,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        border: selected
+            ? Border.all(color: primaryColor, width: 1.5)
+            : borders.toBorder(),
+      ),
+      child: _ExcelCellLabel(text: text, style: style, bodyStyle: bodyStyle),
+    );
+  }
+}
+
+class _ExcelCellLabel extends StatelessWidget {
+  final String text;
+  final ExcelCellStyle style;
+  final TextStyle? bodyStyle;
+
+  const _ExcelCellLabel({
+    required this.text,
+    required this.style,
+    required this.bodyStyle,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      child: Align(
+        alignment: style.alignment,
+        child: Text(
+          text,
+          maxLines: style.wrapText ? null : 1,
+          overflow: style.wrapText
+              ? TextOverflow.visible
+              : TextOverflow.ellipsis,
+          style: bodyStyle?.copyWith(
+            fontWeight: style.bold ? FontWeight.w600 : FontWeight.normal,
+            fontStyle: style.italic ? FontStyle.italic : FontStyle.normal,
+            fontSize: style.fontSize,
+            fontFamily: style.fontFamily,
+            color: style.fontColor,
+            decoration: _textDecoration(style),
           ),
         ),
       ),
