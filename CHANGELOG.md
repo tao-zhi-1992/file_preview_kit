@@ -1,5 +1,6 @@
 ## Unreleased
 
+- Fixed XLSX background colors on blank cells, including inherited row and column styles.
 - XLSX cell styles including fonts, fills, borders, alignment, wrap text, underline, and strikethrough.
 - XLSX number and date formatting via `numFmt`.
 - XLSX column widths loaded from workbook metadata.

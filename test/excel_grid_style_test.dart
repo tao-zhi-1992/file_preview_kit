@@ -71,6 +71,40 @@ void main() {
     expect(material.color, const Color(0xFFFFFF00));
   });
 
+  testWidgets('renders background styles on blank cells', (tester) async {
+    final sheet = ExcelSheet(
+      name: 'Blank style',
+      rowCount: 1,
+      columnCount: 1,
+      rows: [
+        [
+          ExcelCell.blank(
+            rowIndex: 0,
+            columnIndex: 0,
+            address: 'A1',
+            style: const ExcelCellStyle(backgroundColor: Color(0xFFFFFF00)),
+          ),
+        ],
+      ],
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: ExcelPreviewView(workbook: ExcelWorkbook(sheets: [sheet])),
+        ),
+      ),
+    );
+
+    final material = tester.widget<Material>(
+      find.descendant(
+        of: find.byKey(const ValueKey('excel-cell-0-0')),
+        matching: find.byType(Material),
+      ),
+    );
+    expect(material.color, const Color(0xFFFFFF00));
+  });
+
   testWidgets('renders merged cells from worksheet metadata', (tester) async {
     final sheet = ExcelSheet(
       name: 'Merged',

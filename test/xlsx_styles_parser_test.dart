@@ -121,6 +121,49 @@ void main() {
       expect(styledCell.style.backgroundColor, const Color(0xFFFFFF00));
     });
 
+    test('keeps background styles on blank cells', () {
+      final workbook = XlsxParser().parseBytes(
+        styledWorkbookBytes(
+          stylesXml: stylesXml,
+          sheetXml: '''
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <cols><col min="2" max="2" style="1"/></cols>
+  <sheetData>
+    <row r="1" s="1" customFormat="1">
+      <c r="A1"/>
+      <c r="C1"><v>Sample</v></c>
+    </row>
+    <row r="2" s="1" customFormat="1"/>
+    <row r="3">
+      <c r="A3"><v>Sample</v></c>
+      <c r="C3"><v>Sample</v></c>
+    </row>
+  </sheetData>
+</worksheet>
+''',
+        ),
+      );
+
+      final sheet = workbook.firstSheet!;
+      expect(sheet.cellAt(0, 0)!.displayValue, isEmpty);
+      expect(
+        sheet.cellAt(0, 0)!.style.backgroundColor,
+        const Color(0xFFFFFF00),
+      );
+      expect(
+        sheet.cellAt(0, 1)!.style.backgroundColor,
+        const Color(0xFFFFFF00),
+      );
+      expect(
+        sheet.cellAt(1, 1)!.style.backgroundColor,
+        const Color(0xFFFFFF00),
+      );
+      expect(
+        sheet.cellAt(2, 1)!.style.backgroundColor,
+        const Color(0xFFFFFF00),
+      );
+    });
+
     test('uses empty style when styles.xml is missing', () {
       final archive = Archive()
         ..addFile(

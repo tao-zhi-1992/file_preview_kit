@@ -231,8 +231,10 @@ class XlsxParser {
 
     final columnWidths = _parseColumnWidths(document);
     final mergeRegions = _parseMergeRegions(document);
+    final columnStyles = _parseColumnStyles(document, stylesResult.styles);
 
     final rowMap = <int, List<ExcelCell>>{};
+    final rowStyles = <int, ExcelCellStyle>{};
     var maxColumnCount = 0;
     var maxRowIndex = -1;
 
@@ -240,6 +242,13 @@ class XlsxParser {
       final rowCells = <ExcelCell>[];
 
       final rowIndexFromAttr = _rowIndexFromRowElement(rowElement);
+      final rowStyle = _styleAt(
+        stylesResult.styles,
+        int.tryParse(rowElement.getAttribute('s') ?? ''),
+      );
+      if (rowStyle != null) {
+        rowStyles[rowIndexFromAttr] = rowStyle;
+      }
 
       for (final cellElement in rowElement.findElements('c')) {
         final address = cellElement.getAttribute('r') ?? '';
@@ -260,6 +269,10 @@ class XlsxParser {
               rowIndex: rowIndex,
               columnIndex: blankColumnIndex,
               address: _cellAddress(rowIndex, blankColumnIndex),
+              style:
+                  rowStyle ??
+                  columnStyles[blankColumnIndex] ??
+                  ExcelCellStyle.empty,
             ),
           );
         }
@@ -273,6 +286,8 @@ class XlsxParser {
               : address,
           sharedStrings: sharedStrings,
           stylesResult: stylesResult,
+          inheritedStyle:
+              rowStyle ?? columnStyles[columnIndex] ?? ExcelCellStyle.empty,
         );
 
         rowCells.add(cell);
@@ -298,7 +313,14 @@ class XlsxParser {
       final existingRow = rowMap[rowIndex];
 
       if (existingRow == null) {
-        rows.add(_blankRow(rowIndex: rowIndex, columnCount: maxColumnCount));
+        rows.add(
+          _blankRow(
+            rowIndex: rowIndex,
+            columnCount: maxColumnCount,
+            rowStyle: rowStyles[rowIndex],
+            columnStyles: columnStyles,
+          ),
+        );
         continue;
       }
 
@@ -312,6 +334,10 @@ class XlsxParser {
             rowIndex: rowIndex,
             columnIndex: columnIndex,
             address: _cellAddress(rowIndex, columnIndex),
+            style:
+                rowStyles[rowIndex] ??
+                columnStyles[columnIndex] ??
+                ExcelCellStyle.empty,
           ),
         );
       }
@@ -343,6 +369,31 @@ class XlsxParser {
       final pixels = excelColumnWidthToPixels(width);
       for (var column = min; column <= max; column++) {
         result[column - 1] = pixels;
+      }
+    }
+
+    return result;
+  }
+
+  Map<int, ExcelCellStyle> _parseColumnStyles(
+    XmlDocument document,
+    List<ExcelCellStyle> styles,
+  ) {
+    final result = <int, ExcelCellStyle>{};
+
+    for (final column in document.findAllElements('col')) {
+      final style = _styleAt(
+        styles,
+        int.tryParse(column.getAttribute('style') ?? ''),
+      );
+      if (style == null) {
+        continue;
+      }
+
+      final min = int.tryParse(column.getAttribute('min') ?? '') ?? 0;
+      final max = int.tryParse(column.getAttribute('max') ?? '') ?? min;
+      for (var index = min; index <= max; index++) {
+        result[index - 1] = style;
       }
     }
 
@@ -381,12 +432,18 @@ class XlsxParser {
     return result;
   }
 
-  List<ExcelCell> _blankRow({required int rowIndex, required int columnCount}) {
+  List<ExcelCell> _blankRow({
+    required int rowIndex,
+    required int columnCount,
+    required ExcelCellStyle? rowStyle,
+    required Map<int, ExcelCellStyle> columnStyles,
+  }) {
     return List.generate(columnCount, (columnIndex) {
       return ExcelCell.blank(
         rowIndex: rowIndex,
         columnIndex: columnIndex,
         address: _cellAddress(rowIndex, columnIndex),
+        style: rowStyle ?? columnStyles[columnIndex] ?? ExcelCellStyle.empty,
       );
     });
   }
@@ -398,6 +455,7 @@ class XlsxParser {
     required String address,
     required List<String> sharedStrings,
     required ExcelStylesParseResult stylesResult,
+    required ExcelCellStyle inheritedStyle,
   }) {
     final type = cellElement.getAttribute('t');
     final valueElements = cellElement.findElements('v');
@@ -409,7 +467,7 @@ class XlsxParser {
             styleIndex >= 0 &&
             styleIndex < stylesResult.styles.length
         ? stylesResult.styles[styleIndex]
-        : ExcelCellStyle.empty;
+        : inheritedStyle;
     final numberFormat =
         styleIndex != null &&
             styleIndex >= 0 &&
@@ -488,6 +546,12 @@ class XlsxParser {
       type: rawValue.isEmpty ? ExcelCellType.blank : ExcelCellType.number,
       style: style,
     );
+  }
+
+  ExcelCellStyle? _styleAt(List<ExcelCellStyle> styles, int? index) {
+    return index != null && index >= 0 && index < styles.length
+        ? styles[index]
+        : null;
   }
 
   int _columnIndexFromCellRef(String ref) {

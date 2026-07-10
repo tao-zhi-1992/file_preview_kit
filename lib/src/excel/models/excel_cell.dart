@@ -40,6 +40,7 @@ class ExcelCell {
     required int rowIndex,
     required int columnIndex,
     required String address,
+    ExcelCellStyle style = ExcelCellStyle.empty,
   }) {
     return ExcelCell(
       rowIndex: rowIndex,
@@ -48,6 +49,7 @@ class ExcelCell {
       rawValue: '',
       displayValue: '',
       type: ExcelCellType.blank,
+      style: style,
     );
   }
 }
