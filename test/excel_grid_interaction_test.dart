@@ -161,7 +161,7 @@ void main() {
     expect(columnWidth(tester, 0), 120);
     final handle = find.byKey(const ValueKey('excel-column-resize-handle-0'));
     final gesture = await tester.startGesture(tester.getCenter(handle));
-    await gesture.moveBy(const Offset(40, 0));
+    await gesture.moveBy(const Offset(40, 10));
     await tester.pump();
 
     expect(columnWidth(tester, 0), 160);
@@ -198,7 +198,7 @@ void main() {
     expect(rowHeight(tester, 0), 36);
     final handle = find.byKey(const ValueKey('excel-row-resize-handle-0'));
     final gesture = await tester.startGesture(tester.getCenter(handle));
-    await gesture.moveBy(const Offset(0, 20));
+    await gesture.moveBy(const Offset(10, 20));
     await tester.pump();
 
     expect(rowHeight(tester, 0), 56);

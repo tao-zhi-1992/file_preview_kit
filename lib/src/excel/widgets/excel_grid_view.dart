@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:two_dimensional_scrollables/two_dimensional_scrollables.dart';
 
@@ -13,6 +14,7 @@ import '../parser/excel_border_resolver.dart';
 const _minimumColumnWidth = 48.0;
 const _minimumRowHeight = 24.0;
 const _resizeHandleExtent = 16.0;
+const _extraGridLineCount = 10;
 
 class ExcelGridView extends StatefulWidget {
   final ExcelSheet sheet;
@@ -88,10 +90,20 @@ class _ExcelGridViewState extends State<ExcelGridView>
 
   Widget _buildTable(BuildContext context) {
     return TableView.builder(
+      horizontalDetails: ScrollableDetails.horizontal(
+        physics: _resizeAxis == _ResizeAxis.column
+            ? const NeverScrollableScrollPhysics()
+            : null,
+      ),
+      verticalDetails: ScrollableDetails.vertical(
+        physics: _resizeAxis == _ResizeAxis.row
+            ? const NeverScrollableScrollPhysics()
+            : null,
+      ),
       pinnedRowCount: 1,
       pinnedColumnCount: 1,
-      rowCount: widget.sheet.rowCount + 1,
-      columnCount: widget.sheet.columnCount + 1,
+      rowCount: widget.sheet.rowCount + _extraGridLineCount + 1,
+      columnCount: widget.sheet.columnCount + _extraGridLineCount + 1,
       columnBuilder: (column) {
         final width = column == 0
             ? widget.rowHeaderWidth
@@ -147,7 +159,7 @@ class _ExcelGridViewState extends State<ExcelGridView>
                 'excel-column-resize-handle-$columnIndex',
               ),
               resizeGripKey: const ValueKey('excel-column-resize-indicator'),
-              onResizeStart: (details) => _startResize(
+              onResizeDown: (details) => _prepareResize(
                 axis: _ResizeAxis.column,
                 index: columnIndex,
                 details: details,
@@ -172,7 +184,7 @@ class _ExcelGridViewState extends State<ExcelGridView>
               resizeAxis: selected ? Axis.vertical : null,
               resizeHandleKey: ValueKey('excel-row-resize-handle-$rowIndex'),
               resizeGripKey: const ValueKey('excel-row-resize-indicator'),
-              onResizeStart: (details) => _startResize(
+              onResizeDown: (details) => _prepareResize(
                 axis: _ResizeAxis.row,
                 index: rowIndex,
                 details: details,
@@ -242,10 +254,10 @@ class _ExcelGridViewState extends State<ExcelGridView>
     });
   }
 
-  void _startResize({
+  void _prepareResize({
     required _ResizeAxis axis,
     required int index,
-    required DragStartDetails details,
+    required DragDownDetails details,
   }) {
     setState(() {
       _resizeAxis = axis;
@@ -463,7 +475,7 @@ class _HeaderCell extends StatelessWidget {
   final Axis? resizeAxis;
   final Key? resizeHandleKey;
   final Key? resizeGripKey;
-  final GestureDragStartCallback? onResizeStart;
+  final GestureDragDownCallback? onResizeDown;
   final GestureDragUpdateCallback? onResizeUpdate;
   final GestureDragEndCallback? onResizeEnd;
   final GestureDragCancelCallback? onResizeCancel;
@@ -476,7 +488,7 @@ class _HeaderCell extends StatelessWidget {
     this.resizeAxis,
     this.resizeHandleKey,
     this.resizeGripKey,
-    this.onResizeStart,
+    this.onResizeDown,
     this.onResizeUpdate,
     this.onResizeEnd,
     this.onResizeCancel,
@@ -498,7 +510,7 @@ class _HeaderCell extends StatelessWidget {
               key: resizeHandleKey,
               resizeAxis: axis,
               resizeGripKey: resizeGripKey,
-              onResizeStart: onResizeStart,
+              onResizeDown: onResizeDown,
               onResizeUpdate: onResizeUpdate,
               onResizeEnd: onResizeEnd,
               onResizeCancel: onResizeCancel,
@@ -574,7 +586,7 @@ class _ExcelHeaderLabelText extends StatelessWidget {
 class _HeaderResizeHandle extends StatelessWidget {
   final Axis resizeAxis;
   final Key? resizeGripKey;
-  final GestureDragStartCallback? onResizeStart;
+  final GestureDragDownCallback? onResizeDown;
   final GestureDragUpdateCallback? onResizeUpdate;
   final GestureDragEndCallback? onResizeEnd;
   final GestureDragCancelCallback? onResizeCancel;
@@ -583,7 +595,7 @@ class _HeaderResizeHandle extends StatelessWidget {
     super.key,
     required this.resizeAxis,
     this.resizeGripKey,
-    this.onResizeStart,
+    this.onResizeDown,
     this.onResizeUpdate,
     this.onResizeEnd,
     this.onResizeCancel,
@@ -606,8 +618,9 @@ class _HeaderResizeHandle extends StatelessWidget {
         right: 0,
         bottom: 0,
         width: _resizeHandleExtent,
-        child: _HorizontalResizeDragTarget(
-          onResizeStart: onResizeStart,
+        child: _ResizeDragTarget(
+          axis: Axis.horizontal,
+          onResizeDown: onResizeDown,
           onResizeUpdate: onResizeUpdate,
           onResizeEnd: onResizeEnd,
           onResizeCancel: onResizeCancel,
@@ -621,8 +634,9 @@ class _HeaderResizeHandle extends StatelessWidget {
       right: 0,
       bottom: 0,
       height: _resizeHandleExtent,
-      child: _VerticalResizeDragTarget(
-        onResizeStart: onResizeStart,
+      child: _ResizeDragTarget(
+        axis: Axis.vertical,
+        onResizeDown: onResizeDown,
         onResizeUpdate: onResizeUpdate,
         onResizeEnd: onResizeEnd,
         onResizeCancel: onResizeCancel,
@@ -632,15 +646,17 @@ class _HeaderResizeHandle extends StatelessWidget {
   }
 }
 
-class _HorizontalResizeDragTarget extends StatelessWidget {
-  final GestureDragStartCallback? onResizeStart;
+class _ResizeDragTarget extends StatelessWidget {
+  final Axis axis;
+  final GestureDragDownCallback? onResizeDown;
   final GestureDragUpdateCallback? onResizeUpdate;
   final GestureDragEndCallback? onResizeEnd;
   final GestureDragCancelCallback? onResizeCancel;
   final Widget child;
 
-  const _HorizontalResizeDragTarget({
-    required this.onResizeStart,
+  const _ResizeDragTarget({
+    required this.axis,
+    required this.onResizeDown,
     required this.onResizeUpdate,
     required this.onResizeEnd,
     required this.onResizeCancel,
@@ -650,49 +666,43 @@ class _HorizontalResizeDragTarget extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MouseRegion(
-      cursor: SystemMouseCursors.resizeColumn,
-      child: GestureDetector(
+      cursor: axis == Axis.horizontal
+          ? SystemMouseCursors.resizeColumn
+          : SystemMouseCursors.resizeRow,
+      child: RawGestureDetector(
         behavior: HitTestBehavior.translucent,
-        onHorizontalDragStart: onResizeStart,
-        onHorizontalDragUpdate: onResizeUpdate,
-        onHorizontalDragEnd: onResizeEnd,
-        onHorizontalDragCancel: onResizeCancel,
-        child: child,
+        gestures: _eagerGesture,
+        child: Listener(
+          behavior: HitTestBehavior.translucent,
+          onPointerDown: (event) => onResizeDown?.call(
+            DragDownDetails(
+              globalPosition: event.position,
+              localPosition: event.localPosition,
+            ),
+          ),
+          onPointerMove: (event) => onResizeUpdate?.call(
+            DragUpdateDetails(
+              globalPosition: event.position,
+              localPosition: event.localPosition,
+              delta: event.delta,
+            ),
+          ),
+          onPointerUp: (_) => onResizeEnd?.call(DragEndDetails()),
+          onPointerCancel: (_) => onResizeCancel?.call(),
+          child: child,
+        ),
       ),
     );
   }
 }
 
-class _VerticalResizeDragTarget extends StatelessWidget {
-  final GestureDragStartCallback? onResizeStart;
-  final GestureDragUpdateCallback? onResizeUpdate;
-  final GestureDragEndCallback? onResizeEnd;
-  final GestureDragCancelCallback? onResizeCancel;
-  final Widget child;
-
-  const _VerticalResizeDragTarget({
-    required this.onResizeStart,
-    required this.onResizeUpdate,
-    required this.onResizeEnd,
-    required this.onResizeCancel,
-    required this.child,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return MouseRegion(
-      cursor: SystemMouseCursors.resizeRow,
-      child: GestureDetector(
-        behavior: HitTestBehavior.translucent,
-        onVerticalDragStart: onResizeStart,
-        onVerticalDragUpdate: onResizeUpdate,
-        onVerticalDragEnd: onResizeEnd,
-        onVerticalDragCancel: onResizeCancel,
-        child: child,
+final _eagerGesture = <Type, GestureRecognizerFactory>{
+  EagerGestureRecognizer:
+      GestureRecognizerFactoryWithHandlers<EagerGestureRecognizer>(
+        EagerGestureRecognizer.new,
+        (_) {},
       ),
-    );
-  }
-}
+};
 
 class _HeaderResizeGrip extends StatelessWidget {
   final Axis axis;

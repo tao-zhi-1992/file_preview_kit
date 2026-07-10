@@ -190,8 +190,10 @@ void main() {
 
     expect(delegate.pinnedRowCount, 1);
     expect(delegate.pinnedColumnCount, 1);
-    expect(delegate.rowCount, 201);
-    expect(delegate.columnCount, 51);
+    expect(delegate.rowCount, 211);
+    expect(delegate.columnCount, 61);
+    expect(delegate.buildRow(210), isNotNull);
+    expect(delegate.buildColumn(60), isNotNull);
     expect(find.byType(TableViewCell).evaluate().length, lessThan(500));
   });
 }

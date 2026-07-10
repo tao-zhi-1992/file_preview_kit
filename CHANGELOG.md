@@ -1,5 +1,6 @@
-## Unreleased
+## 0.0.2 - 2026-07-10
 
+- Added ten empty rows and columns beyond XLSX content for easier resizing.
 - Fixed XLSX background colors on blank cells, including inherited row and column styles.
 - XLSX cell styles including fonts, fills, borders, alignment, wrap text, underline, and strikethrough.
 - XLSX number and date formatting via `numFmt`.
