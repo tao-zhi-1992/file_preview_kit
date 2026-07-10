@@ -61,14 +61,14 @@ void main() {
     expect(textStyle.color, const Color(0xFFFF0000));
     expect(textStyle.decoration, TextDecoration.underline);
 
-    final material = tester.widget<Material>(
+    final background = tester.widget<ColoredBox>(
       find.descendant(
         of: find.byKey(const ValueKey('excel-cell-0-0')),
-        matching: find.byType(Material),
+        matching: find.byType(ColoredBox),
       ),
     );
 
-    expect(material.color, const Color(0xFFFFFF00));
+    expect(background.color, const Color(0xFFFFFF00));
   });
 
   testWidgets('renders background styles on blank cells', (tester) async {
@@ -96,13 +96,13 @@ void main() {
       ),
     );
 
-    final material = tester.widget<Material>(
+    final background = tester.widget<ColoredBox>(
       find.descendant(
         of: find.byKey(const ValueKey('excel-cell-0-0')),
-        matching: find.byType(Material),
+        matching: find.byType(ColoredBox),
       ),
     );
-    expect(material.color, const Color(0xFFFFFF00));
+    expect(background.color, const Color(0xFFFFFF00));
   });
 
   testWidgets('renders merged cells from worksheet metadata', (tester) async {

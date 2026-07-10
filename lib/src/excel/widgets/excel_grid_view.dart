@@ -16,6 +16,9 @@ const _minimumRowHeight = 24.0;
 const _resizeHandleExtent = 16.0;
 const _extraGridLineCount = 10;
 
+/// Slightly above Flutter's default (250) to reduce blank frames on fast pans.
+const _tableCacheExtent = 500.0;
+
 class ExcelGridView extends StatefulWidget {
   final ExcelSheet sheet;
   final FilePreviewKitTexts texts;
@@ -90,6 +93,7 @@ class _ExcelGridViewState extends State<ExcelGridView>
 
   Widget _buildTable(BuildContext context) {
     return TableView.builder(
+      cacheExtent: _tableCacheExtent,
       horizontalDetails: ScrollableDetails.horizontal(
         physics: _resizeAxis == _ResizeAxis.column
             ? const NeverScrollableScrollPhysics()
@@ -417,11 +421,15 @@ class _GridCellModel {
     final tableMergeColumn = mergeRegion == null
         ? null
         : mergeRegion.startColumn + 1;
-    final displayBorders = ExcelBorderResolver.resolve(
-      sheet,
-      rowIndex: originRow,
-      columnIndex: originColumn,
-      mergeRegion: mergeRegion,
+    final displayBorders = sheet.resolvedBordersAt(
+      originRow: originRow,
+      originColumn: originColumn,
+      compute: () => ExcelBorderResolver.resolve(
+        sheet,
+        rowIndex: originRow,
+        columnIndex: originColumn,
+        mergeRegion: mergeRegion,
+      ),
     );
 
     return _GridCellModel(
@@ -542,10 +550,11 @@ class _ExcelHeaderLabel extends StatelessWidget {
         ? theme.colorScheme.onPrimaryContainer
         : theme.colorScheme.onSurfaceVariant;
 
-    return Material(
-      color: backgroundColor,
-      child: InkWell(
-        onTap: onTap,
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: onTap,
+      child: ColoredBox(
+        color: backgroundColor,
         child: _ExcelHeaderLabelText(
           text: text,
           textColor: textColor,
@@ -851,9 +860,10 @@ class _ExcelCellSurface extends StatelessWidget {
     return Semantics(
       selected: selected,
       button: true,
-      child: Material(
-        color: backgroundColor,
-        child: InkWell(onTap: onTap, child: child),
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: onTap,
+        child: ColoredBox(color: backgroundColor, child: child),
       ),
     );
   }

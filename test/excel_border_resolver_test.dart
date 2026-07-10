@@ -66,6 +66,21 @@ void main() {
 
       expect(left.right, isNull);
       expect(right.left, thinBlue);
+
+      final cachedLeft = sheet.resolvedBordersAt(
+        originRow: 0,
+        originColumn: 0,
+        compute: () =>
+            ExcelBorderResolver.resolve(sheet, rowIndex: 0, columnIndex: 0),
+      );
+      final cachedLeftAgain = sheet.resolvedBordersAt(
+        originRow: 0,
+        originColumn: 0,
+        compute: () => throw StateError('should use cache'),
+      );
+
+      expect(cachedLeft.right, isNull);
+      expect(cachedLeftAgain, same(cachedLeft));
     });
 
     test('keeps the thicker border on a shared edge', () {

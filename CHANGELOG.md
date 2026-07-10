@@ -1,3 +1,8 @@
+## Unreleased
+
+- Improved Excel grid scroll smoothness via merge-region indexing, cached border
+  resolution, lighter cell widgets, and a larger table cache extent.
+
 ## 0.0.2 - 2026-07-10
 
 - Added ten empty rows and columns beyond XLSX content for easier resizing.

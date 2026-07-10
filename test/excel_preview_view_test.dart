@@ -94,7 +94,7 @@ void main() {
         ),
         home: Scaffold(
           body: ExcelPreviewView(
-            workbook: const ExcelWorkbook(
+            workbook: ExcelWorkbook(
               sheets: [
                 ExcelSheet(
                   name: 'Sample',
@@ -143,7 +143,7 @@ void main() {
     expect(find.text(texts.noSheetsFound), findsOneWidget);
 
     await tester.pumpWidget(
-      const MaterialApp(
+      MaterialApp(
         home: Scaffold(
           body: ExcelPreviewView(
             workbook: ExcelWorkbook(
@@ -188,6 +188,7 @@ void main() {
     final table = tester.widget<TableView>(find.byType(TableView));
     final delegate = table.delegate as TableCellDelegateMixin;
 
+    expect(table.cacheExtent, 500);
     expect(delegate.pinnedRowCount, 1);
     expect(delegate.pinnedColumnCount, 1);
     expect(delegate.rowCount, 211);
