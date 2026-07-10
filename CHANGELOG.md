@@ -1,7 +1,12 @@
 ## Unreleased
 
-- Improved Excel grid scroll smoothness via merge-region indexing, cached border
-  resolution, lighter cell widgets, and a larger table cache extent.
+- Rebuilt the Excel grid renderer: the visible sheet region (headers, cells,
+  selection, resize grips) is painted on a single canvas with custom two-axis
+  pan, fling, and mouse-wheel scrolling, so scrolling no longer builds or
+  destroys per-cell widgets. Removes the `two_dimensional_scrollables`
+  dependency.
+- Improved Excel scroll performance via merge-region indexing and cached
+  border resolution.
 
 ## 0.0.2 - 2026-07-10
 

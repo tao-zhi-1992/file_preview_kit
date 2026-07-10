@@ -1,7 +1,13 @@
 import 'package:file_preview_kit/file_preview_kit.dart';
+import 'package:file_preview_kit/src/excel/widgets/excel_grid_view.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:two_dimensional_scrollables/two_dimensional_scrollables.dart';
+
+ExcelGridViewState gridNamed(WidgetTester tester, String name) => tester
+    .stateList<ExcelGridViewState>(
+      find.byType(ExcelGridView, skipOffstage: false),
+    )
+    .firstWhere((state) => state.widget.sheet.name == name);
 
 void main() {
   testWidgets('switches between workbook sheets', (tester) async {
@@ -38,9 +44,7 @@ void main() {
       ),
     );
 
-    expect(find.text('Stock'), findsOneWidget);
-    expect(find.text('A'), findsAtLeastNWidgets(1));
-    expect(find.text('1'), findsAtLeastNWidgets(1));
+    expect(gridNamed(tester, 'Inventory').debugDisplayValueAt(0, 0), 'Stock');
 
     final firstTabSize = tester.getSize(
       find.byKey(const ValueKey('sheet-tab-0')),
@@ -65,7 +69,7 @@ void main() {
     await tester.tap(find.text('Receipts'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Received'), findsOneWidget);
+    expect(gridNamed(tester, 'Receipts').debugDisplayValueAt(0, 0), 'Received');
     expect(dotColor(0), Colors.transparent);
     expect(dotColor(1), primaryColor);
     expect(
@@ -164,7 +168,7 @@ void main() {
     expect(find.text(texts.emptySheet), findsOneWidget);
   });
 
-  testWidgets('pins headers and lazily builds table cells', (tester) async {
+  testWidgets('paints only visible cells and clamps scrolling', (tester) async {
     final row = List.generate(
       50,
       (column) =>
@@ -185,16 +189,18 @@ void main() {
       ),
     );
 
-    final table = tester.widget<TableView>(find.byType(TableView));
-    final delegate = table.delegate as TableCellDelegateMixin;
+    final grid = gridNamed(tester, 'Large sample');
+    expect(grid.debugPaintedCellCount, greaterThan(0));
+    expect(grid.debugPaintedCellCount, lessThan(500));
 
-    expect(table.cacheExtent, 500);
-    expect(delegate.pinnedRowCount, 1);
-    expect(delegate.pinnedColumnCount, 1);
-    expect(delegate.rowCount, 211);
-    expect(delegate.columnCount, 61);
-    expect(delegate.buildRow(210), isNotNull);
-    expect(delegate.buildColumn(60), isNotNull);
-    expect(find.byType(TableViewCell).evaluate().length, lessThan(500));
+    grid.debugScrollTo(const Offset(1e9, 1e9));
+    await tester.pump();
+
+    // Scrolling clamps to content bounds and stays virtualized.
+    expect(grid.debugScrollOffset.dx, greaterThan(0));
+    expect(grid.debugScrollOffset.dy, greaterThan(0));
+    // Content width: 56px header + (50 data + 10 extra) columns * 120px.
+    expect(grid.debugScrollOffset.dx, lessThanOrEqualTo(56 + 60 * 120));
+    expect(grid.debugPaintedCellCount, lessThan(500));
   });
 }

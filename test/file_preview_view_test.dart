@@ -3,8 +3,21 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:file_preview_kit/file_preview_kit.dart';
+import 'package:file_preview_kit/src/excel/widgets/excel_grid_view.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+
+bool anyGridShows(WidgetTester tester, String displayValue) {
+  return tester
+      .stateList<ExcelGridViewState>(
+        find.byType(ExcelGridView, skipOffstage: false),
+      )
+      .any(
+        (state) =>
+            state.debugSheetContains(displayValue) &&
+            state.debugPaintedCellCount > 0,
+      );
+}
 
 void main() {
   testWidgets('previews xlsx bytes', (tester) async {
@@ -26,8 +39,8 @@ void main() {
     expect(find.byType(CircularProgressIndicator), findsOneWidget);
     await tester.pumpAndSettle();
 
-    expect(find.text('Name'), findsOneWidget);
-    expect(find.text('Sample User A'), findsOneWidget);
+    expect(anyGridShows(tester, 'Name'), isTrue);
+    expect(anyGridShows(tester, 'Sample User A'), isTrue);
     final dot = tester.widget<AnimatedContainer>(
       find.byKey(const ValueKey('sheet-tab-dot-0')),
     );
@@ -47,8 +60,8 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('00123'), findsOneWidget);
-    expect(find.text('Sample'), findsOneWidget);
+    expect(anyGridShows(tester, '00123'), isTrue);
+    expect(anyGridShows(tester, 'Sample'), isTrue);
   });
 
   testWidgets('previews docx bytes by file extension', (tester) async {

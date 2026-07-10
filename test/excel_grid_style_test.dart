@@ -1,7 +1,7 @@
 import 'package:file_preview_kit/file_preview_kit.dart';
+import 'package:file_preview_kit/src/excel/widgets/excel_grid_view.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:two_dimensional_scrollables/two_dimensional_scrollables.dart';
 
 void main() {
   ExcelSheet styledSheet() {
@@ -40,20 +40,24 @@ void main() {
     );
   }
 
-  testWidgets('renders cell font and background styles', (tester) async {
+  Future<ExcelGridViewState> pumpSheet(
+    WidgetTester tester,
+    ExcelSheet sheet,
+  ) async {
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
-          body: ExcelPreviewView(
-            workbook: ExcelWorkbook(sheets: [styledSheet()]),
-          ),
+          body: ExcelPreviewView(workbook: ExcelWorkbook(sheets: [sheet])),
         ),
       ),
     );
+    return tester.state<ExcelGridViewState>(find.byType(ExcelGridView));
+  }
 
-    final text = tester.widget<Text>(find.text('Header'));
-    final textStyle = text.style!;
+  testWidgets('renders cell font and background styles', (tester) async {
+    final grid = await pumpSheet(tester, styledSheet());
 
+    final textStyle = grid.debugTextStyleAt(0, 0);
     expect(textStyle.fontWeight, FontWeight.w600);
     expect(textStyle.fontStyle, FontStyle.italic);
     expect(textStyle.fontSize, 16);
@@ -61,14 +65,7 @@ void main() {
     expect(textStyle.color, const Color(0xFFFF0000));
     expect(textStyle.decoration, TextDecoration.underline);
 
-    final background = tester.widget<ColoredBox>(
-      find.descendant(
-        of: find.byKey(const ValueKey('excel-cell-0-0')),
-        matching: find.byType(ColoredBox),
-      ),
-    );
-
-    expect(background.color, const Color(0xFFFFFF00));
+    expect(grid.debugCellBackgroundAt(0, 0), const Color(0xFFFFFF00));
   });
 
   testWidgets('renders background styles on blank cells', (tester) async {
@@ -88,21 +85,8 @@ void main() {
       ],
     );
 
-    await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(
-          body: ExcelPreviewView(workbook: ExcelWorkbook(sheets: [sheet])),
-        ),
-      ),
-    );
-
-    final background = tester.widget<ColoredBox>(
-      find.descendant(
-        of: find.byKey(const ValueKey('excel-cell-0-0')),
-        matching: find.byType(ColoredBox),
-      ),
-    );
-    expect(background.color, const Color(0xFFFFFF00));
+    final grid = await pumpSheet(tester, sheet);
+    expect(grid.debugCellBackgroundAt(0, 0), const Color(0xFFFFFF00));
   });
 
   testWidgets('renders merged cells from worksheet metadata', (tester) async {
@@ -129,21 +113,11 @@ void main() {
       ],
     );
 
-    await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(
-          body: ExcelPreviewView(workbook: ExcelWorkbook(sheets: [sheet])),
-        ),
-      ),
-    );
+    final grid = await pumpSheet(tester, sheet);
 
-    expect(find.text('Merged title'), findsOneWidget);
-
-    final mergedCells = tester
-        .widgetList<TableViewCell>(find.byType(TableViewCell))
-        .where((cell) => cell.columnMergeSpan == 3);
-    expect(mergedCells, isNotEmpty);
-    expect(mergedCells.first.columnMergeStart, 1);
+    expect(grid.debugDisplayValueAt(0, 2), 'Merged title');
+    expect(grid.debugCellPaintRect(0, 0), grid.debugCellPaintRect(0, 2));
+    expect(grid.debugCellPaintRect(0, 0).width, 360);
   });
 
   testWidgets('uses worksheet column widths as initial sizes', (tester) async {
@@ -174,20 +148,9 @@ void main() {
       ],
     );
 
-    await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(
-          body: ExcelPreviewView(workbook: ExcelWorkbook(sheets: [sheet])),
-        ),
-      ),
-    );
+    final grid = await pumpSheet(tester, sheet);
 
-    final table = tester.widget<TableView>(find.byType(TableView));
-    final delegate = table.delegate as TableCellDelegateMixin;
-    final wideColumn = delegate.buildColumn(2)!;
-    final defaultColumn = delegate.buildColumn(1)!;
-
-    expect((wideColumn.extent as FixedTableSpanExtent).pixels, 200);
-    expect((defaultColumn.extent as FixedTableSpanExtent).pixels, 120);
+    expect(grid.columnWidthAt(1), 200);
+    expect(grid.columnWidthAt(0), 120);
   });
 }

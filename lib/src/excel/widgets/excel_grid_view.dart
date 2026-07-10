@@ -1,8 +1,9 @@
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
-import 'package:two_dimensional_scrollables/two_dimensional_scrollables.dart';
+import 'package:flutter/scheduler.dart';
 
 import '../../core/file_preview_kit_texts.dart';
 import '../models/excel_cell_borders.dart';
@@ -15,10 +16,14 @@ const _minimumColumnWidth = 48.0;
 const _minimumRowHeight = 24.0;
 const _resizeHandleExtent = 16.0;
 const _extraGridLineCount = 10;
+const _cellPadding = EdgeInsets.symmetric(horizontal: 8, vertical: 4);
+const _maxCachedTextLayouts = 512;
 
-/// Slightly above Flutter's default (250) to reduce blank frames on fast pans.
-const _tableCacheExtent = 500.0;
-
+/// Canvas-based spreadsheet grid.
+///
+/// The whole visible region (headers and body cells) is painted by a single
+/// [CustomPainter]; scrolling only shifts paint offsets instead of building
+/// and destroying per-cell widgets, which keeps fast diagonal pans smooth.
 class ExcelGridView extends StatefulWidget {
   final ExcelSheet sheet;
   final FilePreviewKitTexts texts;
@@ -38,19 +43,28 @@ class ExcelGridView extends StatefulWidget {
   });
 
   @override
-  State<ExcelGridView> createState() => _ExcelGridViewState();
+  State<ExcelGridView> createState() => ExcelGridViewState();
 }
 
-class _ExcelGridViewState extends State<ExcelGridView>
-    with AutomaticKeepAliveClientMixin {
-  final _columnWidths = <int, double>{};
-  final _rowHeights = <int, double>{};
+/// State is public so widget tests can probe selection, sizes, and scrolling
+/// through the [visibleForTesting] members; treat everything else as private.
+class ExcelGridViewState extends State<ExcelGridView>
+    with AutomaticKeepAliveClientMixin, TickerProviderStateMixin {
+  final ValueNotifier<Offset> _scroll = ValueNotifier<Offset>(Offset.zero);
+  final Map<int, double> _columnWidths = <int, double>{};
+  final Map<int, double> _rowHeights = <int, double>{};
+  final _PaintStats _paintStats = _PaintStats();
+  final _TextLayoutCache _textLayouts = _TextLayoutCache();
 
   _GridSelection? _selection;
-  _ResizeAxis? _resizeAxis;
-  int? _resizeIndex;
-  Offset? _dragStartGlobalPosition;
-  double? _dragStartExtent;
+  late _GridMetrics _metrics;
+  Size _viewportSize = Size.zero;
+
+  Ticker? _flingTicker;
+  ClampingScrollSimulation? _flingX;
+  ClampingScrollSimulation? _flingY;
+
+  _ResizeDrag? _resizeDrag;
 
   @override
   bool get wantKeepAlive => true;
@@ -59,6 +73,36 @@ class _ExcelGridViewState extends State<ExcelGridView>
   void initState() {
     super.initState();
     _seedColumnWidths();
+    _metrics = _buildMetrics();
+  }
+
+  @override
+  void didUpdateWidget(covariant ExcelGridView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+
+    final sheetChanged = !identical(oldWidget.sheet, widget.sheet);
+    if (sheetChanged) {
+      _columnWidths.clear();
+      _rowHeights.clear();
+      _seedColumnWidths();
+      _selection = null;
+      _resizeDrag = null;
+      _scroll.value = Offset.zero;
+    }
+    if (sheetChanged ||
+        oldWidget.cellWidth != widget.cellWidth ||
+        oldWidget.cellHeight != widget.cellHeight ||
+        oldWidget.rowHeaderWidth != widget.rowHeaderWidth ||
+        oldWidget.columnHeaderHeight != widget.columnHeaderHeight) {
+      _metrics = _buildMetrics();
+    }
+  }
+
+  @override
+  void dispose() {
+    _flingTicker?.dispose();
+    _scroll.dispose();
+    super.dispose();
   }
 
   void _seedColumnWidths() {
@@ -67,18 +111,381 @@ class _ExcelGridViewState extends State<ExcelGridView>
     }
   }
 
-  @override
-  void didUpdateWidget(covariant ExcelGridView oldWidget) {
-    super.didUpdateWidget(oldWidget);
+  _GridMetrics _buildMetrics() {
+    final columnCount = widget.sheet.columnCount + _extraGridLineCount;
+    final rowCount = widget.sheet.rowCount + _extraGridLineCount;
+    final columnOffsets = List<double>.filled(columnCount + 1, 0);
+    for (var i = 0; i < columnCount; i++) {
+      columnOffsets[i + 1] =
+          columnOffsets[i] + (_columnWidths[i] ?? widget.cellWidth);
+    }
+    final rowOffsets = List<double>.filled(rowCount + 1, 0);
+    for (var i = 0; i < rowCount; i++) {
+      rowOffsets[i + 1] = rowOffsets[i] + (_rowHeights[i] ?? widget.cellHeight);
+    }
+    return _GridMetrics(
+      headerWidth: widget.rowHeaderWidth,
+      headerHeight: widget.columnHeaderHeight,
+      columnOffsets: columnOffsets,
+      rowOffsets: rowOffsets,
+    );
+  }
 
-    if (!identical(oldWidget.sheet, widget.sheet)) {
-      _columnWidths.clear();
-      _rowHeights.clear();
-      _seedColumnWidths();
-      _selection = null;
-      _clearResizeState();
+  // --- Scrolling ---
+
+  Offset _clampScroll(Offset value) {
+    final maxX = math.max(
+      0.0,
+      _metrics.headerWidth + _metrics.bodyWidth - _viewportSize.width,
+    );
+    final maxY = math.max(
+      0.0,
+      _metrics.headerHeight + _metrics.bodyHeight - _viewportSize.height,
+    );
+    return Offset(value.dx.clamp(0.0, maxX), value.dy.clamp(0.0, maxY));
+  }
+
+  void _scrollBy(Offset delta) {
+    _scroll.value = _clampScroll(_scroll.value + delta);
+  }
+
+  void _stopFling() {
+    _flingX = null;
+    _flingY = null;
+    _flingTicker?.stop();
+  }
+
+  void _startFling(Velocity velocity) {
+    final pixelsPerSecond = velocity.pixelsPerSecond;
+    _flingX = pixelsPerSecond.dx.abs() < 50
+        ? null
+        : ClampingScrollSimulation(
+            position: _scroll.value.dx,
+            velocity: -pixelsPerSecond.dx,
+          );
+    _flingY = pixelsPerSecond.dy.abs() < 50
+        ? null
+        : ClampingScrollSimulation(
+            position: _scroll.value.dy,
+            velocity: -pixelsPerSecond.dy,
+          );
+    if (_flingX == null && _flingY == null) {
+      return;
+    }
+    _flingTicker ??= createTicker(_tickFling);
+    _flingTicker
+      ?..stop()
+      ..start();
+  }
+
+  void _tickFling(Duration elapsed) {
+    final seconds = elapsed.inMicroseconds / Duration.microsecondsPerSecond;
+    var x = _scroll.value.dx;
+    var y = _scroll.value.dy;
+
+    final simulationX = _flingX;
+    if (simulationX != null) {
+      x = simulationX.x(seconds);
+      if (simulationX.isDone(seconds)) {
+        _flingX = null;
+      }
+    }
+    final simulationY = _flingY;
+    if (simulationY != null) {
+      y = simulationY.x(seconds);
+      if (simulationY.isDone(seconds)) {
+        _flingY = null;
+      }
+    }
+
+    final clamped = _clampScroll(Offset(x, y));
+    if (clamped.dx != x) {
+      _flingX = null;
+    }
+    if (clamped.dy != y) {
+      _flingY = null;
+    }
+    _scroll.value = clamped;
+
+    if (_flingX == null && _flingY == null) {
+      _flingTicker?.stop();
     }
   }
+
+  // --- Gestures ---
+
+  void _handlePointerSignal(PointerSignalEvent event) {
+    if (event is PointerScrollEvent) {
+      _stopFling();
+      _scrollBy(event.scrollDelta);
+    }
+  }
+
+  void _handleTapDown(TapDownDetails details) => _stopFling();
+
+  void _handleTapUp(TapUpDetails details) {
+    final target = _hitTarget(details.localPosition);
+    switch (target.kind) {
+      case _HitKind.corner:
+        _clearSelection();
+      case _HitKind.columnHeader:
+        _selectColumn(target.columnIndex);
+      case _HitKind.rowHeader:
+        _selectRow(target.rowIndex);
+      case _HitKind.cell:
+        _selectCell(target.rowIndex, target.columnIndex);
+    }
+  }
+
+  _HitTarget _hitTarget(Offset position) {
+    final inHeaderRow = position.dy < _metrics.headerHeight;
+    final inHeaderColumn = position.dx < _metrics.headerWidth;
+    if (inHeaderRow && inHeaderColumn) {
+      return const _HitTarget(_HitKind.corner, 0, 0);
+    }
+
+    final bodyX = position.dx - _metrics.headerWidth + _scroll.value.dx;
+    final bodyY = position.dy - _metrics.headerHeight + _scroll.value.dy;
+    if (inHeaderRow) {
+      return _HitTarget(_HitKind.columnHeader, 0, _metrics.columnAt(bodyX));
+    }
+    if (inHeaderColumn) {
+      return _HitTarget(_HitKind.rowHeader, _metrics.rowAt(bodyY), 0);
+    }
+    return _HitTarget(
+      _HitKind.cell,
+      _metrics.rowAt(bodyY),
+      _metrics.columnAt(bodyX),
+    );
+  }
+
+  void _handlePanDown(DragDownDetails details) {
+    _stopFling();
+    _resizeDrag = _resizeDragAt(details.localPosition);
+  }
+
+  _ResizeDrag? _resizeDragAt(Offset position) {
+    final columnGrip = debugColumnGripRect;
+    final selection = _selection;
+    if (columnGrip != null &&
+        selection != null &&
+        columnGrip.contains(position)) {
+      final index = selection.columnIndex;
+      if (index != null) {
+        return _ResizeDrag(
+          axis: _ResizeAxis.column,
+          index: index,
+          startExtent: _metrics.columnWidth(index),
+          startPosition: position,
+        );
+      }
+    }
+    final rowGrip = debugRowGripRect;
+    if (rowGrip != null && selection != null && rowGrip.contains(position)) {
+      final index = selection.rowIndex;
+      if (index != null) {
+        return _ResizeDrag(
+          axis: _ResizeAxis.row,
+          index: index,
+          startExtent: _metrics.rowHeight(index),
+          startPosition: position,
+        );
+      }
+    }
+    return null;
+  }
+
+  void _handlePanStart(DragStartDetails details) {
+    final drag = _resizeDrag;
+    if (drag != null) {
+      _applyResize(drag, details.localPosition);
+    }
+  }
+
+  void _handlePanUpdate(DragUpdateDetails details) {
+    final drag = _resizeDrag;
+    if (drag == null) {
+      _scrollBy(-details.delta);
+      return;
+    }
+    _applyResize(drag, details.localPosition);
+  }
+
+  void _applyResize(_ResizeDrag drag, Offset localPosition) {
+    final pointerDelta = drag.axis == _ResizeAxis.column
+        ? localPosition.dx - drag.startPosition.dx
+        : localPosition.dy - drag.startPosition.dy;
+    final minimumExtent = drag.axis == _ResizeAxis.column
+        ? _minimumColumnWidth
+        : _minimumRowHeight;
+    final extent = math.max(minimumExtent, drag.startExtent + pointerDelta);
+
+    setState(() {
+      if (drag.axis == _ResizeAxis.column) {
+        _columnWidths[drag.index] = extent;
+      } else {
+        _rowHeights[drag.index] = extent;
+      }
+      _metrics = _buildMetrics();
+      _scroll.value = _clampScroll(_scroll.value);
+    });
+  }
+
+  void _handlePanEnd(DragEndDetails details) {
+    if (_resizeDrag != null) {
+      _resizeDrag = null;
+      return;
+    }
+    _startFling(details.velocity);
+  }
+
+  void _handlePanCancel() => _resizeDrag = null;
+
+  // --- Selection ---
+
+  void _selectCell(int rowIndex, int columnIndex) {
+    setState(() => _selection = _GridSelection.cell(rowIndex, columnIndex));
+  }
+
+  void _selectColumn(int columnIndex) {
+    setState(() => _selection = _GridSelection.column(columnIndex));
+  }
+
+  void _selectRow(int rowIndex) {
+    setState(() => _selection = _GridSelection.row(rowIndex));
+  }
+
+  void _clearSelection() {
+    setState(() => _selection = null);
+  }
+
+  // --- Test hooks ---
+
+  @visibleForTesting
+  int get debugPaintedCellCount => _paintStats.paintedCells;
+
+  @visibleForTesting
+  Offset get debugScrollOffset => _scroll.value;
+
+  @visibleForTesting
+  void debugScrollTo(Offset offset) {
+    _scroll.value = _clampScroll(offset);
+  }
+
+  @visibleForTesting
+  bool isCellSelected(int rowIndex, int columnIndex) =>
+      _selection?.isCell(rowIndex, columnIndex) ?? false;
+
+  @visibleForTesting
+  bool isRowSelected(int rowIndex) => _selection?.isRow(rowIndex) ?? false;
+
+  @visibleForTesting
+  bool isColumnSelected(int columnIndex) =>
+      _selection?.isColumn(columnIndex) ?? false;
+
+  @visibleForTesting
+  bool isCellHighlighted(int rowIndex, int columnIndex) {
+    final selection = _selection;
+    if (selection == null) {
+      return false;
+    }
+    return selection.isCell(rowIndex, columnIndex) ||
+        selection.isRow(rowIndex) ||
+        selection.isColumn(columnIndex);
+  }
+
+  @visibleForTesting
+  double columnWidthAt(int columnIndex) => _metrics.columnWidth(columnIndex);
+
+  @visibleForTesting
+  double rowHeightAt(int rowIndex) => _metrics.rowHeight(rowIndex);
+
+  @visibleForTesting
+  Rect? get debugColumnGripRect => _columnGripRectFor(
+    selection: _selection,
+    metrics: _metrics,
+    scroll: _scroll.value,
+    viewportWidth: _viewportSize.width,
+  );
+
+  @visibleForTesting
+  Rect? get debugRowGripRect => _rowGripRectFor(
+    selection: _selection,
+    metrics: _metrics,
+    scroll: _scroll.value,
+    viewportHeight: _viewportSize.height,
+  );
+
+  @visibleForTesting
+  String debugDisplayValueAt(int rowIndex, int columnIndex) {
+    final region = widget.sheet.mergeRegionAt(rowIndex, columnIndex);
+    final cell = widget.sheet.cellAt(
+      region?.startRow ?? rowIndex,
+      region?.startColumn ?? columnIndex,
+    );
+    return cell?.displayValue ?? '';
+  }
+
+  @visibleForTesting
+  Rect debugCellPaintRect(int rowIndex, int columnIndex) {
+    final region = widget.sheet.mergeRegionAt(rowIndex, columnIndex);
+    final startRow = region?.startRow ?? rowIndex;
+    final startColumn = region?.startColumn ?? columnIndex;
+    final endRow = region?.endRow ?? rowIndex;
+    final endColumn = region?.endColumn ?? columnIndex;
+    return Rect.fromLTRB(
+      _metrics.columnOffsets[startColumn],
+      _metrics.rowOffsets[startRow],
+      _metrics.columnOffsets[endColumn + 1],
+      _metrics.rowOffsets[endRow + 1],
+    );
+  }
+
+  @visibleForTesting
+  TextStyle debugTextStyleAt(int rowIndex, int columnIndex) {
+    final region = widget.sheet.mergeRegionAt(rowIndex, columnIndex);
+    final cell = widget.sheet.cellAt(
+      region?.startRow ?? rowIndex,
+      region?.startColumn ?? columnIndex,
+    );
+    final base = Theme.of(context).textTheme.bodySmall ?? const TextStyle();
+    return _applyCellTextStyle(base, cell?.style ?? ExcelCellStyle.empty);
+  }
+
+  @visibleForTesting
+  Color debugCellBackgroundAt(int rowIndex, int columnIndex) {
+    final theme = Theme.of(context);
+    final region = widget.sheet.mergeRegionAt(rowIndex, columnIndex);
+    final cell = widget.sheet.cellAt(
+      region?.startRow ?? rowIndex,
+      region?.startColumn ?? columnIndex,
+    );
+    final base =
+        (cell?.style ?? ExcelCellStyle.empty).backgroundColor ??
+        theme.colorScheme.surface;
+    if (!isCellHighlighted(rowIndex, columnIndex)) {
+      return base;
+    }
+    final alpha = isCellSelected(rowIndex, columnIndex) ? 0.12 : 0.06;
+    return Color.alphaBlend(
+      theme.colorScheme.primary.withValues(alpha: alpha),
+      base,
+    );
+  }
+
+  @visibleForTesting
+  bool debugSheetContains(String displayValue) {
+    for (final row in widget.sheet.rows) {
+      for (final cell in row) {
+        if (cell.displayValue == displayValue) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  // --- Build ---
 
   @override
   Widget build(BuildContext context) {
@@ -88,253 +495,135 @@ class _ExcelGridViewState extends State<ExcelGridView>
       return Center(child: Text(widget.texts.emptySheet));
     }
 
-    return _buildTable(context);
-  }
+    final gridTheme = _GridTheme.of(context);
+    final textDirection = Directionality.of(context);
 
-  Widget _buildTable(BuildContext context) {
-    return TableView.builder(
-      cacheExtent: _tableCacheExtent,
-      horizontalDetails: ScrollableDetails.horizontal(
-        physics: _resizeAxis == _ResizeAxis.column
-            ? const NeverScrollableScrollPhysics()
-            : null,
-      ),
-      verticalDetails: ScrollableDetails.vertical(
-        physics: _resizeAxis == _ResizeAxis.row
-            ? const NeverScrollableScrollPhysics()
-            : null,
-      ),
-      pinnedRowCount: 1,
-      pinnedColumnCount: 1,
-      rowCount: widget.sheet.rowCount + _extraGridLineCount + 1,
-      columnCount: widget.sheet.columnCount + _extraGridLineCount + 1,
-      columnBuilder: (column) {
-        final width = column == 0
-            ? widget.rowHeaderWidth
-            : _columnWidths[column - 1] ?? widget.cellWidth;
-
-        return TableSpan(
-          extent: FixedTableSpanExtent(width),
-          foregroundDecoration: _spanBorder(context),
-        );
-      },
-      rowBuilder: (row) {
-        final height = row == 0
-            ? widget.columnHeaderHeight
-            : _rowHeights[row - 1] ?? widget.cellHeight;
-
-        return TableSpan(
-          extent: FixedTableSpanExtent(height),
-          foregroundDecoration: _spanBorder(context),
-          backgroundDecoration: TableSpanDecoration(
-            color: row == 0
-                ? Theme.of(context).colorScheme.surfaceContainerLow
-                : Theme.of(context).colorScheme.surface,
-          ),
-        );
-      },
-      cellBuilder: (context, vicinity) {
-        final row = vicinity.row;
-        final column = vicinity.column;
-
-        if (row == 0 && column == 0) {
-          return TableViewCell(
-            child: _HeaderCell(
-              key: const ValueKey('excel-grid-corner'),
-              text: '',
-              selected: false,
-              onTap: _clearSelection,
-            ),
-          );
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        _viewportSize = constraints.biggest;
+        final clamped = _clampScroll(_scroll.value);
+        if (clamped != _scroll.value) {
+          _scroll.value = clamped;
         }
 
-        if (row == 0) {
-          final columnIndex = column - 1;
-          final selected = _selection?.isColumn(columnIndex) ?? false;
-
-          return TableViewCell(
-            child: _HeaderCell(
-              key: ValueKey('excel-column-header-$columnIndex'),
-              text: _columnName(columnIndex),
-              selected: selected,
-              onTap: () => _selectColumn(columnIndex),
-              resizeAxis: selected ? Axis.horizontal : null,
-              resizeHandleKey: ValueKey(
-                'excel-column-resize-handle-$columnIndex',
+        return Semantics(
+          container: true,
+          label: widget.sheet.name,
+          child: Listener(
+            onPointerSignal: _handlePointerSignal,
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTapDown: _handleTapDown,
+              onTapUp: _handleTapUp,
+              onPanDown: _handlePanDown,
+              onPanStart: _handlePanStart,
+              onPanUpdate: _handlePanUpdate,
+              onPanEnd: _handlePanEnd,
+              onPanCancel: _handlePanCancel,
+              child: CustomPaint(
+                painter: _ExcelGridPainter(
+                  sheet: widget.sheet,
+                  metrics: _metrics,
+                  scroll: _scroll,
+                  selection: _selection,
+                  theme: gridTheme,
+                  textLayouts: _textLayouts,
+                  stats: _paintStats,
+                  textDirection: textDirection,
+                ),
+                willChange: true,
+                child: const SizedBox.expand(),
               ),
-              resizeGripKey: const ValueKey('excel-column-resize-indicator'),
-              onResizeDown: (details) => _prepareResize(
-                axis: _ResizeAxis.column,
-                index: columnIndex,
-                details: details,
-              ),
-              onResizeUpdate: _updateResize,
-              onResizeEnd: (_) => _finishResize(),
-              onResizeCancel: _finishResize,
             ),
-          );
-        }
-
-        if (column == 0) {
-          final rowIndex = row - 1;
-          final selected = _selection?.isRow(rowIndex) ?? false;
-
-          return TableViewCell(
-            child: _HeaderCell(
-              key: ValueKey('excel-row-header-$rowIndex'),
-              text: '$row',
-              selected: selected,
-              onTap: () => _selectRow(rowIndex),
-              resizeAxis: selected ? Axis.vertical : null,
-              resizeHandleKey: ValueKey('excel-row-resize-handle-$rowIndex'),
-              resizeGripKey: const ValueKey('excel-row-resize-indicator'),
-              onResizeDown: (details) => _prepareResize(
-                axis: _ResizeAxis.row,
-                index: rowIndex,
-                details: details,
-              ),
-              onResizeUpdate: _updateResize,
-              onResizeEnd: (_) => _finishResize(),
-              onResizeCancel: _finishResize,
-            ),
-          );
-        }
-
-        final rowIndex = row - 1;
-        final columnIndex = column - 1;
-        final model = _GridCellModel.resolve(
-          widget.sheet,
-          _selection,
-          rowIndex,
-          columnIndex,
-        );
-
-        return TableViewCell(
-          rowMergeStart: model.rowMergeStart,
-          rowMergeSpan: model.rowMergeSpan,
-          columnMergeStart: model.columnMergeStart,
-          columnMergeSpan: model.columnMergeSpan,
-          child: _BodyCell(
-            key: ValueKey(
-              'excel-cell-${model.originRow}-${model.originColumn}',
-            ),
-            text: model.text,
-            style: model.style,
-            borders: model.borders,
-            selected: model.selected,
-            highlighted: model.highlighted,
-            onTap: () => _selectCell(model.rowIndex, model.columnIndex),
           ),
         );
       },
     );
-  }
-
-  void _selectCell(int rowIndex, int columnIndex) {
-    setState(() {
-      _selection = _GridSelection.cell(rowIndex, columnIndex);
-      _clearResizeState();
-    });
-  }
-
-  void _selectColumn(int columnIndex) {
-    setState(() {
-      _selection = _GridSelection.column(columnIndex);
-      _clearResizeState();
-    });
-  }
-
-  void _selectRow(int rowIndex) {
-    setState(() {
-      _selection = _GridSelection.row(rowIndex);
-      _clearResizeState();
-    });
-  }
-
-  void _clearSelection() {
-    setState(() {
-      _selection = null;
-      _clearResizeState();
-    });
-  }
-
-  void _prepareResize({
-    required _ResizeAxis axis,
-    required int index,
-    required DragDownDetails details,
-  }) {
-    setState(() {
-      _resizeAxis = axis;
-      _resizeIndex = index;
-      _dragStartGlobalPosition = details.globalPosition;
-      _dragStartExtent = axis == _ResizeAxis.column
-          ? _columnWidths[index] ?? widget.cellWidth
-          : _rowHeights[index] ?? widget.cellHeight;
-    });
-  }
-
-  void _updateResize(DragUpdateDetails details) {
-    final axis = _resizeAxis;
-    final index = _resizeIndex;
-    final startPosition = _dragStartGlobalPosition;
-    final startExtent = _dragStartExtent;
-
-    if (axis == null ||
-        index == null ||
-        startPosition == null ||
-        startExtent == null) {
-      return;
-    }
-
-    final pointerDelta = axis == _ResizeAxis.column
-        ? details.globalPosition.dx - startPosition.dx
-        : details.globalPosition.dy - startPosition.dy;
-    final minimumExtent = axis == _ResizeAxis.column
-        ? _minimumColumnWidth
-        : _minimumRowHeight;
-    final extent = math.max(minimumExtent, startExtent + pointerDelta);
-
-    setState(() {
-      if (axis == _ResizeAxis.column) {
-        _columnWidths[index] = extent;
-      } else {
-        _rowHeights[index] = extent;
-      }
-    });
-  }
-
-  void _finishResize() {
-    setState(_clearResizeState);
-  }
-
-  void _clearResizeState() {
-    _resizeAxis = null;
-    _resizeIndex = null;
-    _dragStartGlobalPosition = null;
-    _dragStartExtent = null;
-  }
-
-  TableSpanDecoration _spanBorder(BuildContext context) {
-    return TableSpanDecoration(
-      border: TableSpanBorder(
-        trailing: BorderSide(color: Theme.of(context).dividerColor, width: 0.5),
-      ),
-    );
-  }
-
-  String _columnName(int columnIndex) {
-    var index = columnIndex + 1;
-    final chars = <String>[];
-
-    while (index > 0) {
-      final remainder = (index - 1) % 26;
-      chars.insert(0, String.fromCharCode('A'.codeUnitAt(0) + remainder));
-      index = (index - 1) ~/ 26;
-    }
-
-    return chars.join();
   }
 }
+
+// --- Shared layout helpers ---
+
+Rect? _columnGripRectFor({
+  required _GridSelection? selection,
+  required _GridMetrics metrics,
+  required Offset scroll,
+  required double viewportWidth,
+}) {
+  final index = selection?.type == _SelectionType.column
+      ? selection?.columnIndex
+      : null;
+  if (index == null) {
+    return null;
+  }
+  final right =
+      metrics.headerWidth + metrics.columnOffsets[index + 1] - scroll.dx;
+  final left = right - _resizeHandleExtent;
+  if (left < metrics.headerWidth || left > viewportWidth) {
+    return null;
+  }
+  return Rect.fromLTWH(left, 0, _resizeHandleExtent, metrics.headerHeight);
+}
+
+Rect? _rowGripRectFor({
+  required _GridSelection? selection,
+  required _GridMetrics metrics,
+  required Offset scroll,
+  required double viewportHeight,
+}) {
+  final index = selection?.type == _SelectionType.row
+      ? selection?.rowIndex
+      : null;
+  if (index == null) {
+    return null;
+  }
+  final bottom =
+      metrics.headerHeight + metrics.rowOffsets[index + 1] - scroll.dy;
+  final top = bottom - _resizeHandleExtent;
+  if (top < metrics.headerHeight || top > viewportHeight) {
+    return null;
+  }
+  return Rect.fromLTWH(0, top, metrics.headerWidth, _resizeHandleExtent);
+}
+
+TextStyle _applyCellTextStyle(TextStyle base, ExcelCellStyle style) {
+  return base.copyWith(
+    fontWeight: style.bold ? FontWeight.w600 : FontWeight.normal,
+    fontStyle: style.italic ? FontStyle.italic : FontStyle.normal,
+    fontSize: style.fontSize,
+    fontFamily: style.fontFamily,
+    color: style.fontColor,
+    decoration: _textDecoration(style),
+  );
+}
+
+TextDecoration? _textDecoration(ExcelCellStyle style) {
+  final decorations = <TextDecoration>[
+    if (style.underline) TextDecoration.underline,
+    if (style.strikethrough) TextDecoration.lineThrough,
+  ];
+
+  if (decorations.isEmpty) {
+    return null;
+  }
+
+  return TextDecoration.combine(decorations);
+}
+
+String _columnName(int columnIndex) {
+  var index = columnIndex + 1;
+  final chars = <String>[];
+
+  while (index > 0) {
+    final remainder = (index - 1) % 26;
+    chars.insert(0, String.fromCharCode('A'.codeUnitAt(0) + remainder));
+    index = (index - 1) ~/ 26;
+  }
+
+  return chars.join();
+}
+
+// --- Support types ---
 
 enum _SelectionType { cell, row, column }
 
@@ -371,580 +660,631 @@ class _GridSelection {
 
 enum _ResizeAxis { row, column }
 
-class _GridCellModel {
-  final String text;
-  final ExcelCellStyle style;
-  final ExcelCellBorders borders;
-  final bool selected;
-  final bool highlighted;
+class _ResizeDrag {
+  final _ResizeAxis axis;
+  final int index;
+  final double startExtent;
+  final Offset startPosition;
+
+  const _ResizeDrag({
+    required this.axis,
+    required this.index,
+    required this.startExtent,
+    required this.startPosition,
+  });
+}
+
+enum _HitKind { corner, columnHeader, rowHeader, cell }
+
+class _HitTarget {
+  final _HitKind kind;
   final int rowIndex;
   final int columnIndex;
-  final int originRow;
-  final int originColumn;
-  final int? rowMergeStart;
-  final int? rowMergeSpan;
-  final int? columnMergeStart;
-  final int? columnMergeSpan;
 
-  const _GridCellModel({
-    required this.text,
-    required this.style,
-    required this.borders,
-    required this.selected,
-    required this.highlighted,
-    required this.rowIndex,
-    required this.columnIndex,
-    required this.originRow,
-    required this.originColumn,
-    required this.rowMergeStart,
-    required this.rowMergeSpan,
-    required this.columnMergeStart,
-    required this.columnMergeSpan,
+  const _HitTarget(this.kind, this.rowIndex, this.columnIndex);
+}
+
+class _PaintStats {
+  int paintedCells = 0;
+}
+
+class _GridMetrics {
+  final double headerWidth;
+  final double headerHeight;
+
+  /// Cumulative x offsets of body columns; length is columnCount + 1.
+  final List<double> columnOffsets;
+
+  /// Cumulative y offsets of body rows; length is rowCount + 1.
+  final List<double> rowOffsets;
+
+  const _GridMetrics({
+    required this.headerWidth,
+    required this.headerHeight,
+    required this.columnOffsets,
+    required this.rowOffsets,
   });
 
-  factory _GridCellModel.resolve(
-    ExcelSheet sheet,
-    _GridSelection? selection,
-    int rowIndex,
-    int columnIndex,
-  ) {
-    final mergeRegion = sheet.mergeRegionAt(rowIndex, columnIndex);
-    final originRow = mergeRegion?.startRow ?? rowIndex;
-    final originColumn = mergeRegion?.startColumn ?? columnIndex;
-    final cell = sheet.cellAt(originRow, originColumn);
-    final selected = selection?.isCell(rowIndex, columnIndex) ?? false;
-    final highlighted =
-        selected ||
-        (selection?.isRow(rowIndex) ?? false) ||
-        (selection?.isColumn(columnIndex) ?? false);
-    final tableMergeRow = mergeRegion == null ? null : mergeRegion.startRow + 1;
-    final tableMergeColumn = mergeRegion == null
-        ? null
-        : mergeRegion.startColumn + 1;
-    final displayBorders = sheet.resolvedBordersAt(
-      originRow: originRow,
-      originColumn: originColumn,
-      compute: () => ExcelBorderResolver.resolve(
-        sheet,
-        rowIndex: originRow,
-        columnIndex: originColumn,
-        mergeRegion: mergeRegion,
-      ),
-    );
+  double get bodyWidth => columnOffsets.last;
+  double get bodyHeight => rowOffsets.last;
+  int get columnCount => columnOffsets.length - 1;
+  int get rowCount => rowOffsets.length - 1;
 
-    return _GridCellModel(
-      text: cell?.displayValue ?? '',
-      style: cell?.style ?? ExcelCellStyle.empty,
-      borders: displayBorders,
-      selected: selected,
-      highlighted: highlighted,
-      rowIndex: rowIndex,
-      columnIndex: columnIndex,
-      originRow: originRow,
-      originColumn: originColumn,
-      rowMergeStart: _mergeSpanStart(mergeRegion, tableMergeRow, isRow: true),
-      rowMergeSpan: _mergeSpan(mergeRegion, isRow: true),
-      columnMergeStart: _mergeSpanStart(
-        mergeRegion,
-        tableMergeColumn,
-        isRow: false,
+  double columnWidth(int index) =>
+      columnOffsets[index + 1] - columnOffsets[index];
+
+  double rowHeight(int index) => rowOffsets[index + 1] - rowOffsets[index];
+
+  int columnAt(double position) => _spanIndexAt(columnOffsets, position);
+
+  int rowAt(double position) => _spanIndexAt(rowOffsets, position);
+
+  static int _spanIndexAt(List<double> offsets, double position) {
+    if (position <= 0) {
+      return 0;
+    }
+    var low = 0;
+    var high = offsets.length - 2;
+    if (position >= offsets[high]) {
+      return high;
+    }
+    while (low < high) {
+      final mid = (low + high + 1) >> 1;
+      if (offsets[mid] <= position) {
+        low = mid;
+      } else {
+        high = mid - 1;
+      }
+    }
+    return low;
+  }
+}
+
+class _GridTheme {
+  final Color surface;
+  final Color headerBackground;
+  final Color headerSelectedBackground;
+  final Color headerForeground;
+  final Color headerSelectedForeground;
+  final Color divider;
+  final Color primary;
+  final Color onPrimary;
+  final TextStyle bodyStyle;
+  final TextStyle headerStyle;
+
+  const _GridTheme({
+    required this.surface,
+    required this.headerBackground,
+    required this.headerSelectedBackground,
+    required this.headerForeground,
+    required this.headerSelectedForeground,
+    required this.divider,
+    required this.primary,
+    required this.onPrimary,
+    required this.bodyStyle,
+    required this.headerStyle,
+  });
+
+  factory _GridTheme.of(BuildContext context) {
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
+    return _GridTheme(
+      surface: colors.surface,
+      headerBackground: colors.surfaceContainerLow,
+      headerSelectedBackground: colors.primaryContainer,
+      headerForeground: colors.onSurfaceVariant,
+      headerSelectedForeground: colors.onPrimaryContainer,
+      divider: theme.dividerColor,
+      primary: colors.primary,
+      onPrimary: colors.onPrimary,
+      bodyStyle: theme.textTheme.bodySmall ?? const TextStyle(),
+      headerStyle: (theme.textTheme.labelSmall ?? const TextStyle()).copyWith(
+        fontWeight: FontWeight.w600,
       ),
-      columnMergeSpan: _mergeSpan(mergeRegion, isRow: false),
     );
   }
+}
 
-  static int? _mergeSpanStart(
-    ExcelMergeRegion? mergeRegion,
-    int? tableMergeStart, {
-    required bool isRow,
+class _TextLayoutCache {
+  final Map<String, TextPainter> _layouts = <String, TextPainter>{};
+
+  TextPainter obtain({
+    required String text,
+    required TextStyle style,
+    required bool wrap,
+    required double maxWidth,
+    required TextDirection direction,
   }) {
-    if (mergeRegion == null) {
-      return null;
+    final width = math.max(0, maxWidth.ceil()).toDouble();
+    final key = '${style.hashCode}|$wrap|$width|${direction.index}|$text';
+    final cached = _layouts.remove(key);
+    if (cached != null) {
+      _layouts[key] = cached;
+      return cached;
     }
 
-    final span = isRow ? mergeRegion.rowSpan : mergeRegion.columnSpan;
-    return span > 1 ? tableMergeStart : null;
-  }
-
-  static int? _mergeSpan(ExcelMergeRegion? mergeRegion, {required bool isRow}) {
-    if (mergeRegion == null) {
-      return null;
+    final painter = TextPainter(
+      text: TextSpan(text: text, style: style),
+      textDirection: direction,
+      maxLines: wrap ? null : 1,
+      ellipsis: wrap ? null : '…',
+    )..layout(maxWidth: width);
+    _layouts[key] = painter;
+    if (_layouts.length > _maxCachedTextLayouts) {
+      _layouts.remove(_layouts.keys.first);
     }
-
-    final span = isRow ? mergeRegion.rowSpan : mergeRegion.columnSpan;
-    return span > 1 ? span : null;
+    return painter;
   }
 }
 
-class _HeaderCell extends StatelessWidget {
-  final String text;
-  final bool selected;
-  final VoidCallback onTap;
-  final Axis? resizeAxis;
-  final Key? resizeHandleKey;
-  final Key? resizeGripKey;
-  final GestureDragDownCallback? onResizeDown;
-  final GestureDragUpdateCallback? onResizeUpdate;
-  final GestureDragEndCallback? onResizeEnd;
-  final GestureDragCancelCallback? onResizeCancel;
+// --- Painter ---
 
-  const _HeaderCell({
-    super.key,
-    required this.text,
-    required this.selected,
-    required this.onTap,
-    this.resizeAxis,
-    this.resizeHandleKey,
-    this.resizeGripKey,
-    this.onResizeDown,
-    this.onResizeUpdate,
-    this.onResizeEnd,
-    this.onResizeCancel,
-  });
+class _ExcelGridPainter extends CustomPainter {
+  final ExcelSheet sheet;
+  final _GridMetrics metrics;
+  final ValueListenable<Offset> scroll;
+  final _GridSelection? selection;
+  final _GridTheme theme;
+  final _TextLayoutCache textLayouts;
+  final _PaintStats stats;
+  final TextDirection textDirection;
+
+  _ExcelGridPainter({
+    required this.sheet,
+    required this.metrics,
+    required this.scroll,
+    required this.selection,
+    required this.theme,
+    required this.textLayouts,
+    required this.stats,
+    required this.textDirection,
+  }) : super(repaint: scroll);
 
   @override
-  Widget build(BuildContext context) {
-    final axis = resizeAxis;
+  void paint(Canvas canvas, Size size) {
+    final offset = scroll.value;
+    final bodyRect = Rect.fromLTWH(
+      metrics.headerWidth,
+      metrics.headerHeight,
+      math.max(0, size.width - metrics.headerWidth),
+      math.max(0, size.height - metrics.headerHeight),
+    );
 
-    return Semantics(
-      selected: selected,
-      button: true,
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          _ExcelHeaderLabel(text: text, selected: selected, onTap: onTap),
-          if (axis != null)
-            _HeaderResizeHandle(
-              key: resizeHandleKey,
-              resizeAxis: axis,
-              resizeGripKey: resizeGripKey,
-              onResizeDown: onResizeDown,
-              onResizeUpdate: onResizeUpdate,
-              onResizeEnd: onResizeEnd,
-              onResizeCancel: onResizeCancel,
+    canvas.drawRect(Offset.zero & size, Paint()..color = theme.surface);
+    _paintBody(canvas, bodyRect, offset);
+    _paintColumnHeaders(canvas, size, offset);
+    _paintRowHeaders(canvas, size, offset);
+    _paintCorner(canvas);
+    _paintDividers(canvas, size, offset);
+    _paintSelectedCellBorder(canvas, bodyRect, offset);
+    _paintGrips(canvas, size, offset);
+  }
+
+  void _paintBody(Canvas canvas, Rect bodyRect, Offset offset) {
+    if (bodyRect.isEmpty) {
+      stats.paintedCells = 0;
+      return;
+    }
+
+    canvas.save();
+    canvas.clipRect(bodyRect);
+
+    final firstColumn = metrics.columnAt(offset.dx);
+    final lastColumn = metrics.columnAt(offset.dx + bodyRect.width);
+    final firstRow = metrics.rowAt(offset.dy);
+    final lastRow = metrics.rowAt(offset.dy + bodyRect.height);
+
+    final paintedOrigins = <int>{};
+    var painted = 0;
+    for (var row = firstRow; row <= lastRow; row++) {
+      for (var column = firstColumn; column <= lastColumn; column++) {
+        final region = sheet.mergeRegionAt(row, column);
+        final originRow = region?.startRow ?? row;
+        final originColumn = region?.startColumn ?? column;
+        if (region != null) {
+          final originKey = originRow * metrics.columnCount + originColumn;
+          if (!paintedOrigins.add(originKey)) {
+            continue;
+          }
+        }
+        painted++;
+
+        final rect = _cellRect(region, originRow, originColumn, offset);
+        final cell = sheet.cellAt(originRow, originColumn);
+        final style = cell?.style ?? ExcelCellStyle.empty;
+
+        final background = style.backgroundColor;
+        if (background != null) {
+          canvas.drawRect(rect, Paint()..color = background);
+        }
+        if (originRow < sheet.rowCount && originColumn < sheet.columnCount) {
+          final borders = sheet.resolvedBordersAt(
+            originRow: originRow,
+            originColumn: originColumn,
+            compute: () => ExcelBorderResolver.resolve(
+              sheet,
+              rowIndex: originRow,
+              columnIndex: originColumn,
+              mergeRegion: region,
             ),
-        ],
-      ),
+          );
+          _paintCellBorders(canvas, rect, borders);
+        }
+
+        final text = cell?.displayValue ?? '';
+        if (text.isNotEmpty) {
+          _paintCellText(canvas, rect, text, style);
+        }
+      }
+    }
+    stats.paintedCells = painted;
+
+    _paintSelectionFill(canvas, bodyRect, offset);
+    canvas.restore();
+  }
+
+  Rect _cellRect(
+    ExcelMergeRegion? region,
+    int originRow,
+    int originColumn,
+    Offset offset,
+  ) {
+    final endRow = region?.endRow ?? originRow;
+    final endColumn = region?.endColumn ?? originColumn;
+    return Rect.fromLTRB(
+      metrics.headerWidth + metrics.columnOffsets[originColumn] - offset.dx,
+      metrics.headerHeight + metrics.rowOffsets[originRow] - offset.dy,
+      metrics.headerWidth + metrics.columnOffsets[endColumn + 1] - offset.dx,
+      metrics.headerHeight + metrics.rowOffsets[endRow + 1] - offset.dy,
     );
   }
-}
 
-class _ExcelHeaderLabel extends StatelessWidget {
-  final String text;
-  final bool selected;
-  final VoidCallback onTap;
+  void _paintCellBorders(Canvas canvas, Rect rect, ExcelCellBorders borders) {
+    final left = borders.left;
+    if (left != null) {
+      final x = rect.left + left.width / 2;
+      canvas.drawLine(
+        Offset(x, rect.top),
+        Offset(x, rect.bottom),
+        left.toPaint(),
+      );
+    }
+    final top = borders.top;
+    if (top != null) {
+      final y = rect.top + top.width / 2;
+      canvas.drawLine(
+        Offset(rect.left, y),
+        Offset(rect.right, y),
+        top.toPaint(),
+      );
+    }
+    final right = borders.right;
+    if (right != null) {
+      final x = rect.right - right.width / 2;
+      canvas.drawLine(
+        Offset(x, rect.top),
+        Offset(x, rect.bottom),
+        right.toPaint(),
+      );
+    }
+    final bottom = borders.bottom;
+    if (bottom != null) {
+      final y = rect.bottom - bottom.width / 2;
+      canvas.drawLine(
+        Offset(rect.left, y),
+        Offset(rect.right, y),
+        bottom.toPaint(),
+      );
+    }
+  }
 
-  const _ExcelHeaderLabel({
-    required this.text,
-    required this.selected,
-    required this.onTap,
-  });
+  void _paintCellText(
+    Canvas canvas,
+    Rect rect,
+    String text,
+    ExcelCellStyle style,
+  ) {
+    final padded = _cellPadding.resolve(textDirection).deflateRect(rect);
+    if (padded.width <= 0 || padded.height <= 0) {
+      return;
+    }
+    final painter = textLayouts.obtain(
+      text: text,
+      style: _applyCellTextStyle(theme.bodyStyle, style),
+      wrap: style.wrapText,
+      maxWidth: padded.width,
+      direction: textDirection,
+    );
+    final aligned = style.alignment.inscribe(painter.size, padded);
+    painter.paint(canvas, aligned.topLeft);
+  }
 
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final backgroundColor = selected
-        ? theme.colorScheme.primaryContainer
-        : theme.colorScheme.surfaceContainerLow;
-    final textColor = selected
-        ? theme.colorScheme.onPrimaryContainer
-        : theme.colorScheme.onSurfaceVariant;
+  void _paintSelectionFill(Canvas canvas, Rect bodyRect, Offset offset) {
+    final currentSelection = selection;
+    if (currentSelection == null) {
+      return;
+    }
 
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: onTap,
-      child: ColoredBox(
-        color: backgroundColor,
-        child: _ExcelHeaderLabelText(
-          text: text,
-          textColor: textColor,
-          textStyle: theme.textTheme.labelSmall,
-        ),
+    switch (currentSelection.type) {
+      case _SelectionType.column:
+        final index = currentSelection.columnIndex;
+        if (index == null) {
+          return;
+        }
+        final left =
+            metrics.headerWidth + metrics.columnOffsets[index] - offset.dx;
+        final rect = Rect.fromLTWH(
+          left,
+          bodyRect.top,
+          metrics.columnWidth(index),
+          bodyRect.height,
+        );
+        canvas.drawRect(
+          rect,
+          Paint()..color = theme.primary.withValues(alpha: 0.06),
+        );
+      case _SelectionType.row:
+        final index = currentSelection.rowIndex;
+        if (index == null) {
+          return;
+        }
+        final top =
+            metrics.headerHeight + metrics.rowOffsets[index] - offset.dy;
+        final rect = Rect.fromLTWH(
+          bodyRect.left,
+          top,
+          bodyRect.width,
+          metrics.rowHeight(index),
+        );
+        canvas.drawRect(
+          rect,
+          Paint()..color = theme.primary.withValues(alpha: 0.06),
+        );
+      case _SelectionType.cell:
+        final rowIndex = currentSelection.rowIndex;
+        final columnIndex = currentSelection.columnIndex;
+        if (rowIndex == null || columnIndex == null) {
+          return;
+        }
+        final region = sheet.mergeRegionAt(rowIndex, columnIndex);
+        final rect = _cellRect(
+          region,
+          region?.startRow ?? rowIndex,
+          region?.startColumn ?? columnIndex,
+          offset,
+        );
+        canvas.drawRect(
+          rect,
+          Paint()..color = theme.primary.withValues(alpha: 0.12),
+        );
+    }
+  }
+
+  void _paintColumnHeaders(Canvas canvas, Size size, Offset offset) {
+    final strip = Rect.fromLTWH(
+      metrics.headerWidth,
+      0,
+      math.max(0, size.width - metrics.headerWidth),
+      metrics.headerHeight,
+    );
+    if (strip.isEmpty) {
+      return;
+    }
+
+    canvas.save();
+    canvas.clipRect(strip);
+    canvas.drawRect(strip, Paint()..color = theme.headerBackground);
+
+    final firstColumn = metrics.columnAt(offset.dx);
+    final lastColumn = metrics.columnAt(offset.dx + strip.width);
+    for (var column = firstColumn; column <= lastColumn; column++) {
+      final left =
+          metrics.headerWidth + metrics.columnOffsets[column] - offset.dx;
+      final rect = Rect.fromLTWH(
+        left,
+        0,
+        metrics.columnWidth(column),
+        metrics.headerHeight,
+      );
+      final selected = selection?.isColumn(column) ?? false;
+      if (selected) {
+        canvas.drawRect(rect, Paint()..color = theme.headerSelectedBackground);
+      }
+      _paintHeaderLabel(canvas, rect, _columnName(column), selected);
+    }
+    canvas.restore();
+  }
+
+  void _paintRowHeaders(Canvas canvas, Size size, Offset offset) {
+    final strip = Rect.fromLTWH(
+      0,
+      metrics.headerHeight,
+      metrics.headerWidth,
+      math.max(0, size.height - metrics.headerHeight),
+    );
+    if (strip.isEmpty) {
+      return;
+    }
+
+    canvas.save();
+    canvas.clipRect(strip);
+    canvas.drawRect(strip, Paint()..color = theme.headerBackground);
+
+    final firstRow = metrics.rowAt(offset.dy);
+    final lastRow = metrics.rowAt(offset.dy + strip.height);
+    for (var row = firstRow; row <= lastRow; row++) {
+      final top = metrics.headerHeight + metrics.rowOffsets[row] - offset.dy;
+      final rect = Rect.fromLTWH(
+        0,
+        top,
+        metrics.headerWidth,
+        metrics.rowHeight(row),
+      );
+      final selected = selection?.isRow(row) ?? false;
+      if (selected) {
+        canvas.drawRect(rect, Paint()..color = theme.headerSelectedBackground);
+      }
+      _paintHeaderLabel(canvas, rect, '${row + 1}', selected);
+    }
+    canvas.restore();
+  }
+
+  void _paintHeaderLabel(Canvas canvas, Rect rect, String text, bool selected) {
+    final painter = textLayouts.obtain(
+      text: text,
+      style: theme.headerStyle.copyWith(
+        color: selected
+            ? theme.headerSelectedForeground
+            : theme.headerForeground,
       ),
+      wrap: false,
+      maxWidth: rect.width,
+      direction: textDirection,
+    );
+    final aligned = Alignment.center.inscribe(painter.size, rect);
+    painter.paint(canvas, aligned.topLeft);
+  }
+
+  void _paintCorner(Canvas canvas) {
+    canvas.drawRect(
+      Rect.fromLTWH(0, 0, metrics.headerWidth, metrics.headerHeight),
+      Paint()..color = theme.headerBackground,
     );
   }
-}
 
-class _ExcelHeaderLabelText extends StatelessWidget {
-  final String text;
-  final Color textColor;
-  final TextStyle? textStyle;
+  void _paintDividers(Canvas canvas, Size size, Offset offset) {
+    final paint = Paint()
+      ..color = theme.divider
+      ..strokeWidth = 0.5;
 
-  const _ExcelHeaderLabelText({
-    required this.text,
-    required this.textColor,
-    required this.textStyle,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Text(
-        text,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style: textStyle?.copyWith(
-          fontWeight: FontWeight.w600,
-          color: textColor,
-        ),
-      ),
+    canvas.drawLine(
+      Offset(metrics.headerWidth, 0),
+      Offset(metrics.headerWidth, size.height),
+      paint,
     );
+    canvas.drawLine(
+      Offset(0, metrics.headerHeight),
+      Offset(size.width, metrics.headerHeight),
+      paint,
+    );
+
+    final firstColumn = metrics.columnAt(offset.dx);
+    final lastColumn = metrics.columnAt(
+      offset.dx + math.max(0, size.width - metrics.headerWidth),
+    );
+    for (var column = firstColumn; column <= lastColumn; column++) {
+      final x =
+          metrics.headerWidth + metrics.columnOffsets[column + 1] - offset.dx;
+      if (x > metrics.headerWidth && x <= size.width) {
+        canvas.drawLine(Offset(x, 0), Offset(x, size.height), paint);
+      }
+    }
+
+    final firstRow = metrics.rowAt(offset.dy);
+    final lastRow = metrics.rowAt(
+      offset.dy + math.max(0, size.height - metrics.headerHeight),
+    );
+    for (var row = firstRow; row <= lastRow; row++) {
+      final y = metrics.headerHeight + metrics.rowOffsets[row + 1] - offset.dy;
+      if (y > metrics.headerHeight && y <= size.height) {
+        canvas.drawLine(Offset(0, y), Offset(size.width, y), paint);
+      }
+    }
   }
-}
 
-class _HeaderResizeHandle extends StatelessWidget {
-  final Axis resizeAxis;
-  final Key? resizeGripKey;
-  final GestureDragDownCallback? onResizeDown;
-  final GestureDragUpdateCallback? onResizeUpdate;
-  final GestureDragEndCallback? onResizeEnd;
-  final GestureDragCancelCallback? onResizeCancel;
+  void _paintSelectedCellBorder(Canvas canvas, Rect bodyRect, Offset offset) {
+    final currentSelection = selection;
+    if (currentSelection == null ||
+        currentSelection.type != _SelectionType.cell) {
+      return;
+    }
+    final rowIndex = currentSelection.rowIndex;
+    final columnIndex = currentSelection.columnIndex;
+    if (rowIndex == null || columnIndex == null) {
+      return;
+    }
 
-  const _HeaderResizeHandle({
-    super.key,
-    required this.resizeAxis,
-    this.resizeGripKey,
-    this.onResizeDown,
-    this.onResizeUpdate,
-    this.onResizeEnd,
-    this.onResizeCancel,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-    final grip = _HeaderResizeGrip(
-      key: resizeGripKey,
-      axis: resizeAxis == Axis.horizontal ? Axis.vertical : Axis.horizontal,
-      color: colorScheme.primary,
-      borderColor: colorScheme.surface,
-      dotColor: colorScheme.onPrimary,
+    final region = sheet.mergeRegionAt(rowIndex, columnIndex);
+    final rect = _cellRect(
+      region,
+      region?.startRow ?? rowIndex,
+      region?.startColumn ?? columnIndex,
+      offset,
     );
+    if (!rect.overlaps(bodyRect)) {
+      return;
+    }
 
-    if (resizeAxis == Axis.horizontal) {
-      return Positioned(
-        top: 0,
-        right: 0,
-        bottom: 0,
-        width: _resizeHandleExtent,
-        child: _ResizeDragTarget(
-          axis: Axis.horizontal,
-          onResizeDown: onResizeDown,
-          onResizeUpdate: onResizeUpdate,
-          onResizeEnd: onResizeEnd,
-          onResizeCancel: onResizeCancel,
-          child: Align(alignment: Alignment.centerRight, child: grip),
+    canvas.save();
+    canvas.clipRect(bodyRect);
+    canvas.drawRect(
+      rect.deflate(0.75),
+      Paint()
+        ..color = theme.primary
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.5,
+    );
+    canvas.restore();
+  }
+
+  void _paintGrips(Canvas canvas, Size size, Offset offset) {
+    final columnGrip = _columnGripRectFor(
+      selection: selection,
+      metrics: metrics,
+      scroll: offset,
+      viewportWidth: size.width,
+    );
+    if (columnGrip != null) {
+      _paintGripIcon(
+        canvas,
+        Rect.fromCenter(
+          center: Offset(columnGrip.right - 6, columnGrip.center.dy),
+          width: 8,
+          height: 20,
         ),
+        vertical: true,
       );
     }
 
-    return Positioned(
-      left: 0,
-      right: 0,
-      bottom: 0,
-      height: _resizeHandleExtent,
-      child: _ResizeDragTarget(
-        axis: Axis.vertical,
-        onResizeDown: onResizeDown,
-        onResizeUpdate: onResizeUpdate,
-        onResizeEnd: onResizeEnd,
-        onResizeCancel: onResizeCancel,
-        child: Align(alignment: Alignment.bottomCenter, child: grip),
-      ),
+    final rowGrip = _rowGripRectFor(
+      selection: selection,
+      metrics: metrics,
+      scroll: offset,
+      viewportHeight: size.height,
     );
-  }
-}
-
-class _ResizeDragTarget extends StatelessWidget {
-  final Axis axis;
-  final GestureDragDownCallback? onResizeDown;
-  final GestureDragUpdateCallback? onResizeUpdate;
-  final GestureDragEndCallback? onResizeEnd;
-  final GestureDragCancelCallback? onResizeCancel;
-  final Widget child;
-
-  const _ResizeDragTarget({
-    required this.axis,
-    required this.onResizeDown,
-    required this.onResizeUpdate,
-    required this.onResizeEnd,
-    required this.onResizeCancel,
-    required this.child,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return MouseRegion(
-      cursor: axis == Axis.horizontal
-          ? SystemMouseCursors.resizeColumn
-          : SystemMouseCursors.resizeRow,
-      child: RawGestureDetector(
-        behavior: HitTestBehavior.translucent,
-        gestures: _eagerGesture,
-        child: Listener(
-          behavior: HitTestBehavior.translucent,
-          onPointerDown: (event) => onResizeDown?.call(
-            DragDownDetails(
-              globalPosition: event.position,
-              localPosition: event.localPosition,
-            ),
-          ),
-          onPointerMove: (event) => onResizeUpdate?.call(
-            DragUpdateDetails(
-              globalPosition: event.position,
-              localPosition: event.localPosition,
-              delta: event.delta,
-            ),
-          ),
-          onPointerUp: (_) => onResizeEnd?.call(DragEndDetails()),
-          onPointerCancel: (_) => onResizeCancel?.call(),
-          child: child,
+    if (rowGrip != null) {
+      _paintGripIcon(
+        canvas,
+        Rect.fromCenter(
+          center: Offset(rowGrip.center.dx, rowGrip.bottom - 6),
+          width: 20,
+          height: 8,
         ),
-      ),
-    );
-  }
-}
-
-final _eagerGesture = <Type, GestureRecognizerFactory>{
-  EagerGestureRecognizer:
-      GestureRecognizerFactoryWithHandlers<EagerGestureRecognizer>(
-        EagerGestureRecognizer.new,
-        (_) {},
-      ),
-};
-
-class _HeaderResizeGrip extends StatelessWidget {
-  final Axis axis;
-  final Color color;
-  final Color borderColor;
-  final Color dotColor;
-
-  const _HeaderResizeGrip({
-    super.key,
-    required this.axis,
-    required this.color,
-    required this.borderColor,
-    required this.dotColor,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final isVertical = axis == Axis.vertical;
-
-    return Container(
-      width: isVertical ? 8 : 20,
-      height: isVertical ? 20 : 8,
-      decoration: BoxDecoration(
-        color: color,
-        borderRadius: BorderRadius.circular(4),
-        border: Border.all(color: borderColor, width: 1),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.16),
-            blurRadius: 2,
-            offset: const Offset(0, 1),
-          ),
-        ],
-      ),
-      child: _ResizeGripDots(axis: axis, dotColor: dotColor),
-    );
-  }
-}
-
-class _ResizeGripDots extends StatelessWidget {
-  final Axis axis;
-  final Color dotColor;
-
-  const _ResizeGripDots({required this.axis, required this.dotColor});
-
-  @override
-  Widget build(BuildContext context) {
-    final dot = Container(
-      width: 2,
-      height: 2,
-      decoration: BoxDecoration(color: dotColor, shape: BoxShape.circle),
-    );
-
-    if (axis == Axis.vertical) {
-      return Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          dot,
-          const SizedBox(height: 3),
-          dot,
-          const SizedBox(height: 3),
-          dot,
-        ],
+        vertical: false,
       );
     }
-
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        dot,
-        const SizedBox(width: 3),
-        dot,
-        const SizedBox(width: 3),
-        dot,
-      ],
-    );
   }
-}
 
-class _BodyCell extends StatelessWidget {
-  final String text;
-  final ExcelCellStyle style;
-  final ExcelCellBorders borders;
-  final bool selected;
-  final bool highlighted;
-  final VoidCallback onTap;
+  void _paintGripIcon(Canvas canvas, Rect icon, {required bool vertical}) {
+    final rrect = RRect.fromRectAndRadius(icon, const Radius.circular(4));
+    canvas.drawRRect(rrect, Paint()..color = theme.primary);
+    canvas.drawRRect(
+      rrect,
+      Paint()
+        ..color = theme.surface
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1,
+    );
 
-  const _BodyCell({
-    super.key,
-    required this.text,
-    required this.style,
-    required this.borders,
-    required this.selected,
-    required this.highlighted,
-    required this.onTap,
-  });
-
-  Color _backgroundColor(ThemeData theme) {
-    final baseBackground = style.backgroundColor ?? theme.colorScheme.surface;
-
-    if (!highlighted) {
-      return baseBackground;
+    final dotPaint = Paint()..color = theme.onPrimary;
+    for (var i = -1; i <= 1; i++) {
+      final center = vertical
+          ? Offset(icon.center.dx, icon.center.dy + i * 5)
+          : Offset(icon.center.dx + i * 5, icon.center.dy);
+      canvas.drawCircle(center, 1, dotPaint);
     }
-
-    return Color.alphaBlend(
-      theme.colorScheme.primary.withValues(alpha: selected ? 0.12 : 0.06),
-      baseBackground,
-    );
   }
 
   @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return _ExcelCellSurface(
-      selected: highlighted,
-      backgroundColor: _backgroundColor(theme),
-      onTap: onTap,
-      child: _ExcelCellText(
-        text: text,
-        style: style,
-        borders: borders,
-        selected: selected,
-        primaryColor: theme.colorScheme.primary,
-        bodyStyle: theme.textTheme.bodySmall,
-      ),
-    );
-  }
-}
-
-class _ExcelCellSurface extends StatelessWidget {
-  final bool selected;
-  final Color backgroundColor;
-  final VoidCallback onTap;
-  final Widget child;
-
-  const _ExcelCellSurface({
-    required this.selected,
-    required this.backgroundColor,
-    required this.onTap,
-    required this.child,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Semantics(
-      selected: selected,
-      button: true,
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: onTap,
-        child: ColoredBox(color: backgroundColor, child: child),
-      ),
-    );
-  }
-}
-
-class _ExcelCellText extends StatelessWidget {
-  final String text;
-  final ExcelCellStyle style;
-  final ExcelCellBorders borders;
-  final bool selected;
-  final Color primaryColor;
-  final TextStyle? bodyStyle;
-
-  const _ExcelCellText({
-    required this.text,
-    required this.style,
-    required this.borders,
-    required this.selected,
-    required this.primaryColor,
-    required this.bodyStyle,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        border: selected
-            ? Border.all(color: primaryColor, width: 1.5)
-            : borders.toBorder(),
-      ),
-      child: _ExcelCellLabel(text: text, style: style, bodyStyle: bodyStyle),
-    );
-  }
-}
-
-class _ExcelCellLabel extends StatelessWidget {
-  final String text;
-  final ExcelCellStyle style;
-  final TextStyle? bodyStyle;
-
-  const _ExcelCellLabel({
-    required this.text,
-    required this.style,
-    required this.bodyStyle,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      child: Align(
-        alignment: style.alignment,
-        child: Text(
-          text,
-          maxLines: style.wrapText ? null : 1,
-          overflow: style.wrapText
-              ? TextOverflow.visible
-              : TextOverflow.ellipsis,
-          style: bodyStyle?.copyWith(
-            fontWeight: style.bold ? FontWeight.w600 : FontWeight.normal,
-            fontStyle: style.italic ? FontStyle.italic : FontStyle.normal,
-            fontSize: style.fontSize,
-            fontFamily: style.fontFamily,
-            color: style.fontColor,
-            decoration: _textDecoration(style),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-TextDecoration? _textDecoration(ExcelCellStyle style) {
-  final decorations = <TextDecoration>[
-    if (style.underline) TextDecoration.underline,
-    if (style.strikethrough) TextDecoration.lineThrough,
-  ];
-
-  if (decorations.isEmpty) {
-    return null;
-  }
-
-  return TextDecoration.combine(decorations);
+  bool shouldRepaint(covariant _ExcelGridPainter oldDelegate) => true;
 }
