@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/scheduler.dart';
 
 import '../../core/file_preview_kit_theme.dart';
 import '../../core/file_preview_kit_texts.dart';

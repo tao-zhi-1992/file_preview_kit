@@ -1,5 +1,9 @@
 ## Unreleased
 
+## 0.0.3 - 2026-07-10
+
+- Fixed Canvas Excel grid merges: skip internal grid lines inside merge
+  regions, and resolve cell selection to the merge origin.
 - Rebuilt the Excel grid renderer: the visible sheet region (headers, cells,
   selection, resize grips) is painted on a single canvas with custom two-axis
   pan, fling, and mouse-wheel scrolling, so scrolling no longer builds or

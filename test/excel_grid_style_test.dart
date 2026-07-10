@@ -118,6 +118,57 @@ void main() {
     expect(grid.debugDisplayValueAt(0, 2), 'Merged title');
     expect(grid.debugCellPaintRect(0, 0), grid.debugCellPaintRect(0, 2));
     expect(grid.debugCellPaintRect(0, 0).width, 360);
+
+    // Internal vertical dividers inside A1:C1 are skipped; outer edge remains.
+    expect(grid.debugSkipsVerticalDivider(afterColumn: 0, rowIndex: 0), isTrue);
+    expect(grid.debugSkipsVerticalDivider(afterColumn: 1, rowIndex: 0), isTrue);
+    expect(
+      grid.debugSkipsVerticalDivider(afterColumn: 2, rowIndex: 0),
+      isFalse,
+    );
+  });
+
+  testWidgets('skips internal dividers for vertically merged cells', (
+    tester,
+  ) async {
+    final sheet = ExcelSheet(
+      name: 'Vertical merge',
+      rowCount: 3,
+      columnCount: 1,
+      mergeRegions: const [
+        ExcelMergeRegion(startRow: 0, startColumn: 0, endRow: 2, endColumn: 0),
+      ],
+      rows: [
+        [
+          ExcelCell(
+            rowIndex: 0,
+            columnIndex: 0,
+            address: 'A1',
+            rawValue: 'Tall',
+            displayValue: 'Tall',
+            type: ExcelCellType.string,
+          ),
+        ],
+        [ExcelCell.blank(rowIndex: 1, columnIndex: 0, address: 'A2')],
+        [ExcelCell.blank(rowIndex: 2, columnIndex: 0, address: 'A3')],
+      ],
+    );
+
+    final grid = await pumpSheet(tester, sheet);
+
+    expect(grid.debugCellPaintRect(0, 0).height, 108);
+    expect(
+      grid.debugSkipsHorizontalDivider(afterRow: 0, columnIndex: 0),
+      isTrue,
+    );
+    expect(
+      grid.debugSkipsHorizontalDivider(afterRow: 1, columnIndex: 0),
+      isTrue,
+    );
+    expect(
+      grid.debugSkipsHorizontalDivider(afterRow: 2, columnIndex: 0),
+      isFalse,
+    );
   });
 
   testWidgets('uses worksheet column widths as initial sizes', (tester) async {

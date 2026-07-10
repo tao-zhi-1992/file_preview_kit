@@ -106,6 +106,46 @@ void main() {
     expect(grid.debugRowGripRect, isNull);
   });
 
+  testWidgets('selects the merge origin when tapping a covered cell', (
+    tester,
+  ) async {
+    final sheet = ExcelSheet(
+      name: 'Merged selection',
+      rowCount: 1,
+      columnCount: 3,
+      mergeRegions: const [
+        ExcelMergeRegion(startRow: 0, startColumn: 0, endRow: 0, endColumn: 2),
+      ],
+      rows: [
+        [
+          ExcelCell(
+            rowIndex: 0,
+            columnIndex: 0,
+            address: 'A1',
+            rawValue: 'Merged title',
+            displayValue: 'Merged title',
+            type: ExcelCellType.string,
+          ),
+          ExcelCell.blank(rowIndex: 0, columnIndex: 1, address: 'B1'),
+          ExcelCell.blank(rowIndex: 0, columnIndex: 2, address: 'C1'),
+        ],
+      ],
+    );
+
+    await _pumpSheet(tester, sheet);
+    final origin = _gridOrigin(tester);
+    final grid = _grid(tester);
+
+    // Tap column C (covered by A1:C1), not the origin.
+    await tester.tapAt(
+      origin + Offset(_headerWidth + _cellWidth * 2 + 10, _headerHeight + 10),
+    );
+    await tester.pump();
+
+    expect(grid.isCellSelected(0, 0), isTrue);
+    expect(grid.isCellSelected(0, 2), isFalse);
+  });
+
   testWidgets('resizes a selected column with the header grip', (tester) async {
     await _pumpSheet(tester, _sampleSheet('Resize columns'));
     final origin = _gridOrigin(tester);

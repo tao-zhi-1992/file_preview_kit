@@ -185,7 +185,6 @@ class ExcelNumberFormat {
     var index = 0;
 
     while (index < format.length) {
-      final remaining = format.substring(index);
       final lowerRemaining = lower.substring(index);
 
       if (lowerRemaining.startsWith('yyyy')) {

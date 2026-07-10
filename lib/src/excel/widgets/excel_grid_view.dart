@@ -344,7 +344,13 @@ class ExcelGridViewState extends State<ExcelGridView>
   // --- Selection ---
 
   void _selectCell(int rowIndex, int columnIndex) {
-    setState(() => _selection = _GridSelection.cell(rowIndex, columnIndex));
+    final region = widget.sheet.mergeRegionAt(rowIndex, columnIndex);
+    setState(
+      () => _selection = _GridSelection.cell(
+        region?.startRow ?? rowIndex,
+        region?.startColumn ?? columnIndex,
+      ),
+    );
   }
 
   void _selectColumn(int columnIndex) {
@@ -485,6 +491,34 @@ class ExcelGridViewState extends State<ExcelGridView>
     return false;
   }
 
+  /// Whether the body vertical divider after [afterColumn] is skipped for [rowIndex]
+  /// because it falls inside a merge region.
+  @visibleForTesting
+  bool debugSkipsVerticalDivider({
+    required int afterColumn,
+    required int rowIndex,
+  }) {
+    return _isInternalVerticalMergeBoundary(
+      sheet: widget.sheet,
+      afterColumn: afterColumn,
+      rowIndex: rowIndex,
+    );
+  }
+
+  /// Whether the body horizontal divider after [afterRow] is skipped for
+  /// [columnIndex] because it falls inside a merge region.
+  @visibleForTesting
+  bool debugSkipsHorizontalDivider({
+    required int afterRow,
+    required int columnIndex,
+  }) {
+    return _isInternalHorizontalMergeBoundary(
+      sheet: widget.sheet,
+      afterRow: afterRow,
+      columnIndex: columnIndex,
+    );
+  }
+
   // --- Build ---
 
   @override
@@ -621,6 +655,32 @@ String _columnName(int columnIndex) {
   }
 
   return chars.join();
+}
+
+bool _isInternalVerticalMergeBoundary({
+  required ExcelSheet sheet,
+  required int afterColumn,
+  required int rowIndex,
+}) {
+  final left = sheet.mergeRegionAt(rowIndex, afterColumn);
+  if (left == null) {
+    return false;
+  }
+  final right = sheet.mergeRegionAt(rowIndex, afterColumn + 1);
+  return identical(left, right);
+}
+
+bool _isInternalHorizontalMergeBoundary({
+  required ExcelSheet sheet,
+  required int afterRow,
+  required int columnIndex,
+}) {
+  final top = sheet.mergeRegionAt(afterRow, columnIndex);
+  if (top == null) {
+    return false;
+  }
+  final bottom = sheet.mergeRegionAt(afterRow + 1, columnIndex);
+  return identical(top, bottom);
 }
 
 // --- Support types ---
@@ -1172,22 +1232,76 @@ class _ExcelGridPainter extends CustomPainter {
     final lastColumn = metrics.columnAt(
       offset.dx + math.max(0, size.width - metrics.headerWidth),
     );
-    for (var column = firstColumn; column <= lastColumn; column++) {
-      final x =
-          metrics.headerWidth + metrics.columnOffsets[column + 1] - offset.dx;
-      if (x > metrics.headerWidth && x <= size.width) {
-        canvas.drawLine(Offset(x, 0), Offset(x, size.height), paint);
-      }
-    }
-
     final firstRow = metrics.rowAt(offset.dy);
     final lastRow = metrics.rowAt(
       offset.dy + math.max(0, size.height - metrics.headerHeight),
     );
+
+    for (var column = firstColumn; column <= lastColumn; column++) {
+      final x =
+          metrics.headerWidth + metrics.columnOffsets[column + 1] - offset.dx;
+      if (x <= metrics.headerWidth || x > size.width) {
+        continue;
+      }
+
+      // Column headers are never merged; always draw the header strip.
+      canvas.drawLine(Offset(x, 0), Offset(x, metrics.headerHeight), paint);
+
+      // Body: skip segments that fall inside a horizontal merge.
+      for (var row = firstRow; row <= lastRow; row++) {
+        if (_isInternalVerticalMergeBoundary(
+          sheet: sheet,
+          afterColumn: column,
+          rowIndex: row,
+        )) {
+          continue;
+        }
+        final top = metrics.headerHeight + metrics.rowOffsets[row] - offset.dy;
+        final bottom =
+            metrics.headerHeight + metrics.rowOffsets[row + 1] - offset.dy;
+        final clippedTop = math.max(top, metrics.headerHeight);
+        final clippedBottom = math.min(bottom, size.height);
+        if (clippedBottom > clippedTop) {
+          canvas.drawLine(
+            Offset(x, clippedTop),
+            Offset(x, clippedBottom),
+            paint,
+          );
+        }
+      }
+    }
+
     for (var row = firstRow; row <= lastRow; row++) {
       final y = metrics.headerHeight + metrics.rowOffsets[row + 1] - offset.dy;
-      if (y > metrics.headerHeight && y <= size.height) {
-        canvas.drawLine(Offset(0, y), Offset(size.width, y), paint);
+      if (y <= metrics.headerHeight || y > size.height) {
+        continue;
+      }
+
+      // Row headers are never merged; always draw the header strip.
+      canvas.drawLine(Offset(0, y), Offset(metrics.headerWidth, y), paint);
+
+      // Body: skip segments that fall inside a vertical merge.
+      for (var column = firstColumn; column <= lastColumn; column++) {
+        if (_isInternalHorizontalMergeBoundary(
+          sheet: sheet,
+          afterRow: row,
+          columnIndex: column,
+        )) {
+          continue;
+        }
+        final left =
+            metrics.headerWidth + metrics.columnOffsets[column] - offset.dx;
+        final right =
+            metrics.headerWidth + metrics.columnOffsets[column + 1] - offset.dx;
+        final clippedLeft = math.max(left, metrics.headerWidth);
+        final clippedRight = math.min(right, size.width);
+        if (clippedRight > clippedLeft) {
+          canvas.drawLine(
+            Offset(clippedLeft, y),
+            Offset(clippedRight, y),
+            paint,
+          );
+        }
       }
     }
   }
