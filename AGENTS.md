@@ -14,7 +14,8 @@
 ## Versioning
 
 - Published vs in-development versions are tracked in [docs/release.md](docs/release.md).
-- Record unreleased changes under `CHANGELOG.md` → `Unreleased` only.
+- Record in-progress notes in `CHANGELOG.md` under the next version section when preparing a release.
+- Do not leave an empty `## Unreleased` heading in `CHANGELOG.md` (pub.dev displays it).
 - Do not edit released version sections in `CHANGELOG.md`.
 - Check the latest git tag (if any) before assuming a version is already published.
 

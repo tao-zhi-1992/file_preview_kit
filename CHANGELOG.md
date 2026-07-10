@@ -1,6 +1,4 @@
-## Unreleased
-
-## 0.0.3 - 2026-07-10
+## 0.0.3
 
 - Fixed Canvas Excel grid merges: skip internal grid lines inside merge
   regions, and resolve cell selection to the merge origin.
@@ -12,7 +10,7 @@
 - Improved Excel scroll performance via merge-region indexing and cached
   border resolution.
 
-## 0.0.2 - 2026-07-10
+## 0.0.2
 
 - Added ten empty rows and columns beyond XLSX content for easier resizing.
 - Fixed XLSX background colors on blank cells, including inherited row and column styles.
