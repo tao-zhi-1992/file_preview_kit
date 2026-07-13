@@ -1,5 +1,10 @@
 # File Preview Kit
 
+<p>
+  <img src="example/assets/Screenrecorder-2026-07-13-11-00-07-730.gif" width="48%" alt="File preview demo 1">
+  <img src="example/assets/Screenrecorder-2026-07-13-13-20-54-385.gif" width="48%" alt="File preview demo 2">
+</p>
+
 > [!WARNING]
 > This project was written entirely by AI. Human involvement was limited to UI review. The code has not undergone comprehensive human auditing or production validation, so use it in production with caution.
 
