@@ -247,6 +247,7 @@ class StylesReader {
 
     final horizontal = switch (alignment.getAttribute('horizontal')) {
       'center' => ExcelHorizontalAlign.center,
+      'centerContinuous' => ExcelHorizontalAlign.centerContinuous,
       'right' => ExcelHorizontalAlign.right,
       'left' => ExcelHorizontalAlign.left,
       _ => ExcelHorizontalAlign.general,

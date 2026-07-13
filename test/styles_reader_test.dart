@@ -85,6 +85,26 @@ void main() {
     expect(result.numberFormats.single, 'm/d/yy');
   });
 
+  test('parses center-across-selection alignment', () {
+    final result = reader.parse('''
+<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <fonts count="1"><font/></fonts>
+  <fills count="1"><fill/></fills>
+  <borders count="1"><border/></borders>
+  <cellXfs count="1">
+    <xf fontId="0" fillId="0" borderId="0">
+      <alignment horizontal="centerContinuous"/>
+    </xf>
+  </cellXfs>
+</styleSheet>
+''');
+
+    expect(
+      result.styles.single.horizontalAlign,
+      ExcelHorizontalAlign.centerContinuous,
+    );
+  });
+
   test('ignores cellStyleXfs and only parses cellXfs entries', () {
     final result = reader.parse('''
 <styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">

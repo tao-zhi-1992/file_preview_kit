@@ -89,6 +89,50 @@ void main() {
     expect(grid.debugCellBackgroundAt(0, 0), const Color(0xFFFFFF00));
   });
 
+  testWidgets('aligns general values according to their cell type', (
+    tester,
+  ) async {
+    final sheet = ExcelSheet(
+      name: 'General alignment',
+      rowCount: 1,
+      columnCount: 3,
+      rows: [
+        [
+          const ExcelCell(
+            rowIndex: 0,
+            columnIndex: 0,
+            address: 'A1',
+            rawValue: 'Fictional task',
+            displayValue: 'Fictional task',
+            type: ExcelCellType.string,
+          ),
+          const ExcelCell(
+            rowIndex: 0,
+            columnIndex: 1,
+            address: 'B1',
+            rawValue: '45678',
+            displayValue: '1/21/25',
+            type: ExcelCellType.number,
+          ),
+          const ExcelCell(
+            rowIndex: 0,
+            columnIndex: 2,
+            address: 'C1',
+            rawValue: '0.75',
+            displayValue: '75%',
+            type: ExcelCellType.number,
+          ),
+        ],
+      ],
+    );
+
+    final grid = await pumpSheet(tester, sheet);
+
+    expect(grid.debugTextAlignmentAt(0, 0), Alignment.bottomLeft);
+    expect(grid.debugTextAlignmentAt(0, 1), Alignment.bottomRight);
+    expect(grid.debugTextAlignmentAt(0, 2), Alignment.bottomRight);
+  });
+
   testWidgets('renders merged cells from worksheet metadata', (tester) async {
     final sheet = ExcelSheet(
       name: 'Merged',
@@ -126,6 +170,80 @@ void main() {
       grid.debugSkipsVerticalDivider(afterColumn: 2, rowIndex: 0),
       isFalse,
     );
+  });
+
+  testWidgets('centers text across adjacent empty cells', (tester) async {
+    tester.view.physicalSize = const Size(300, 600);
+    addTearDown(tester.view.resetPhysicalSize);
+    const centeredStyle = ExcelCellStyle(
+      horizontalAlign: ExcelHorizontalAlign.centerContinuous,
+    );
+    final sheet = ExcelSheet(
+      name: 'Centered title',
+      rowCount: 1,
+      columnCount: 4,
+      rows: [
+        [
+          ExcelCell(
+            rowIndex: 0,
+            columnIndex: 0,
+            address: 'A1',
+            rawValue: 'Fictional project title',
+            displayValue: 'Fictional project title',
+            type: ExcelCellType.string,
+            style: centeredStyle,
+          ),
+          ExcelCell.blank(
+            rowIndex: 0,
+            columnIndex: 1,
+            address: 'B1',
+            style: centeredStyle,
+          ),
+          ExcelCell.blank(
+            rowIndex: 0,
+            columnIndex: 2,
+            address: 'C1',
+            style: centeredStyle,
+          ),
+          ExcelCell(
+            rowIndex: 0,
+            columnIndex: 3,
+            address: 'D1',
+            rawValue: 'Stop',
+            displayValue: 'Stop',
+            type: ExcelCellType.string,
+            style: centeredStyle,
+          ),
+        ],
+      ],
+    );
+
+    final grid = await pumpSheet(tester, sheet);
+
+    expect(grid.debugTextPaintRect(0, 0).width, 360);
+    expect(grid.debugVisibleTextPaintRect(0, 0).width, greaterThan(0));
+    expect(
+      grid.debugVisibleTextPaintRect(0, 2),
+      grid.debugVisibleTextPaintRect(0, 0),
+    );
+    expect(grid.debugTextPaintRect(0, 3).width, 120);
+    expect(sheet.mergeRegions, isEmpty);
+  });
+
+  testWidgets('respects hidden worksheet grid lines', (tester) async {
+    final sheet = ExcelSheet(
+      name: 'Hidden grid lines',
+      rowCount: 1,
+      columnCount: 1,
+      showGridLines: false,
+      rows: [
+        [ExcelCell.blank(rowIndex: 0, columnIndex: 0, address: 'A1')],
+      ],
+    );
+
+    final grid = await pumpSheet(tester, sheet);
+
+    expect(grid.debugShowsGridLines, isFalse);
   });
 
   testWidgets('skips internal dividers for vertically merged cells', (

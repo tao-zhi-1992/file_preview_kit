@@ -37,7 +37,8 @@ class ExcelCellStyle {
 
   Alignment get alignment {
     final horizontal = switch (horizontalAlign) {
-      ExcelHorizontalAlign.center => 0.0,
+      ExcelHorizontalAlign.center ||
+      ExcelHorizontalAlign.centerContinuous => 0.0,
       ExcelHorizontalAlign.right => 1.0,
       ExcelHorizontalAlign.left || ExcelHorizontalAlign.general => -1.0,
     };

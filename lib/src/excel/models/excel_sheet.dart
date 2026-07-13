@@ -22,6 +22,9 @@ class ExcelSheet {
   /// Merged cell regions in the worksheet.
   final List<ExcelMergeRegion> mergeRegions;
 
+  /// Whether default worksheet grid lines are visible.
+  final bool showGridLines;
+
   /// O(1) lookup of merge regions by cell coordinates.
   final Map<(int, int), ExcelMergeRegion> _mergeByCell;
 
@@ -36,6 +39,7 @@ class ExcelSheet {
     required this.rows,
     this.columnWidths = const {},
     this.mergeRegions = const [],
+    this.showGridLines = true,
   }) : _mergeByCell = _buildMergeIndex(mergeRegions);
 
   static Map<(int, int), ExcelMergeRegion> _buildMergeIndex(

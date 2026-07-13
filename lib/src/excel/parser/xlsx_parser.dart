@@ -232,6 +232,12 @@ class XlsxParser {
     final columnWidths = _parseColumnWidths(document);
     final mergeRegions = _parseMergeRegions(document);
     final columnStyles = _parseColumnStyles(document, stylesResult.styles);
+    final showGridLines =
+        document
+            .findAllElements('sheetView')
+            .firstOrNull
+            ?.getAttribute('showGridLines') !=
+        '0';
 
     final rowMap = <int, List<ExcelCell>>{};
     final rowStyles = <int, ExcelCellStyle>{};
@@ -352,6 +358,7 @@ class XlsxParser {
       rows: rows,
       columnWidths: columnWidths,
       mergeRegions: mergeRegions,
+      showGridLines: showGridLines,
     );
   }
 

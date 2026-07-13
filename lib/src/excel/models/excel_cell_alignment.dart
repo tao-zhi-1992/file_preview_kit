@@ -9,6 +9,9 @@ enum ExcelHorizontalAlign {
   /// Center aligned.
   center,
 
+  /// Centered across this cell and adjacent empty cells.
+  centerContinuous,
+
   /// Right aligned.
   right,
 }

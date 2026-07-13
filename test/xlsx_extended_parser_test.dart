@@ -92,6 +92,7 @@ void main() {
         workbookBytes(
           sheetXml: '''
 <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <sheetViews><sheetView showGridLines="0"/></sheetViews>
   <cols>
     <col min="2" max="2" width="20" customWidth="1"/>
   </cols>
@@ -113,6 +114,7 @@ void main() {
       expect(sheet.mergeRegions.single.endColumn, 2);
       expect(sheet.isMergeCovered(0, 1), isTrue);
       expect(sheet.isMergeCovered(0, 0), isFalse);
+      expect(sheet.showGridLines, isFalse);
     });
   });
 }

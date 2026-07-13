@@ -6,8 +6,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 
 import '../../core/file_preview_kit_texts.dart';
+import '../models/excel_cell_alignment.dart';
 import '../models/excel_cell_borders.dart';
 import '../models/excel_cell_style.dart';
+import '../models/excel_cell_type.dart';
 import '../models/excel_merge_region.dart';
 import '../models/excel_sheet.dart';
 import '../parser/excel_border_resolver.dart';
@@ -448,6 +450,36 @@ class ExcelGridViewState extends State<ExcelGridView>
   }
 
   @visibleForTesting
+  Rect debugTextPaintRect(int rowIndex, int columnIndex) {
+    final cell = widget.sheet.cellAt(rowIndex, columnIndex);
+    final endColumn =
+        cell?.style.horizontalAlign == ExcelHorizontalAlign.centerContinuous
+        ? _centerContinuousEndColumn(widget.sheet, rowIndex, columnIndex)
+        : columnIndex;
+    return Rect.fromLTRB(
+      _metrics.columnOffsets[columnIndex],
+      _metrics.rowOffsets[rowIndex],
+      _metrics.columnOffsets[endColumn + 1],
+      _metrics.rowOffsets[rowIndex + 1],
+    );
+  }
+
+  @visibleForTesting
+  Rect debugVisibleTextPaintRect(int rowIndex, int columnIndex) {
+    final originColumn =
+        _centerContinuousOriginColumn(widget.sheet, rowIndex, columnIndex) ??
+        columnIndex;
+    final fullRect = debugTextPaintRect(rowIndex, originColumn);
+    final visibleRect = Rect.fromLTWH(
+      _scroll.value.dx,
+      _scroll.value.dy,
+      math.max(0, _viewportSize.width - widget.rowHeaderWidth),
+      math.max(0, _viewportSize.height - widget.columnHeaderHeight),
+    );
+    return fullRect.intersect(visibleRect);
+  }
+
+  @visibleForTesting
   TextStyle debugTextStyleAt(int rowIndex, int columnIndex) {
     final region = widget.sheet.mergeRegionAt(rowIndex, columnIndex);
     final cell = widget.sheet.cellAt(
@@ -456,6 +488,15 @@ class ExcelGridViewState extends State<ExcelGridView>
     );
     final base = Theme.of(context).textTheme.bodySmall ?? const TextStyle();
     return _applyCellTextStyle(base, cell?.style ?? ExcelCellStyle.empty);
+  }
+
+  @visibleForTesting
+  Alignment debugTextAlignmentAt(int rowIndex, int columnIndex) {
+    final cell = widget.sheet.cellAt(rowIndex, columnIndex);
+    return _cellTextAlignment(
+      cell?.style ?? ExcelCellStyle.empty,
+      cell?.type ?? ExcelCellType.blank,
+    );
   }
 
   @visibleForTesting
@@ -490,6 +531,9 @@ class ExcelGridViewState extends State<ExcelGridView>
     }
     return false;
   }
+
+  @visibleForTesting
+  bool get debugShowsGridLines => widget.sheet.showGridLines;
 
   /// Whether the body vertical divider after [afterColumn] is skipped for [rowIndex]
   /// because it falls inside a merge region.
@@ -879,6 +923,53 @@ class _TextLayoutCache {
 
 // --- Painter ---
 
+int _centerContinuousEndColumn(
+  ExcelSheet sheet,
+  int rowIndex,
+  int startColumn,
+) {
+  var endColumn = startColumn;
+  for (var column = startColumn + 1; column < sheet.columnCount; column++) {
+    final cell = sheet.cellAt(rowIndex, column);
+    if ((cell?.displayValue ?? '').isNotEmpty ||
+        cell?.style.horizontalAlign != ExcelHorizontalAlign.centerContinuous) {
+      break;
+    }
+    endColumn = column;
+  }
+  return endColumn;
+}
+
+int? _centerContinuousOriginColumn(
+  ExcelSheet sheet,
+  int rowIndex,
+  int columnIndex,
+) {
+  for (var column = columnIndex; column >= 0; column--) {
+    final cell = sheet.cellAt(rowIndex, column);
+    if (cell?.style.horizontalAlign != ExcelHorizontalAlign.centerContinuous) {
+      return null;
+    }
+    if ((cell?.displayValue ?? '').isNotEmpty) {
+      return column;
+    }
+  }
+  return null;
+}
+
+Alignment _cellTextAlignment(ExcelCellStyle style, ExcelCellType type) {
+  if (style.horizontalAlign != ExcelHorizontalAlign.general) {
+    return style.alignment;
+  }
+
+  final horizontal = switch (type) {
+    ExcelCellType.number || ExcelCellType.formula => 1.0,
+    ExcelCellType.boolean || ExcelCellType.error => 0.0,
+    _ => -1.0,
+  };
+  return Alignment(horizontal, style.alignment.y);
+}
+
 class _ExcelGridPainter extends CustomPainter {
   final ExcelSheet sheet;
   final _GridMetrics metrics;
@@ -935,6 +1026,7 @@ class _ExcelGridPainter extends CustomPainter {
     final lastRow = metrics.rowAt(offset.dy + bodyRect.height);
 
     final paintedOrigins = <int>{};
+    final centeredTextOrigins = <int, (int, int)>{};
     var painted = 0;
     for (var row = firstRow; row <= lastRow; row++) {
       for (var column = firstColumn; column <= lastColumn; column++) {
@@ -971,11 +1063,41 @@ class _ExcelGridPainter extends CustomPainter {
           _paintCellBorders(canvas, rect, borders);
         }
 
-        final text = cell?.displayValue ?? '';
-        if (text.isNotEmpty) {
-          _paintCellText(canvas, rect, text, style);
+        if (style.horizontalAlign == ExcelHorizontalAlign.centerContinuous) {
+          final textOriginColumn = _centerContinuousOriginColumn(
+            sheet,
+            originRow,
+            originColumn,
+          );
+          if (textOriginColumn != null) {
+            final textKey = originRow * metrics.columnCount + textOriginColumn;
+            centeredTextOrigins[textKey] = (originRow, textOriginColumn);
+          }
+        } else {
+          final text = cell?.displayValue ?? '';
+          if (text.isNotEmpty) {
+            _paintCellText(canvas, rect, text, style, cell?.type);
+          }
         }
       }
+    }
+    for (final (rowIndex, columnIndex) in centeredTextOrigins.values) {
+      final textCell = sheet.cellAt(rowIndex, columnIndex);
+      if (textCell == null) {
+        continue;
+      }
+      final textRect = _centerContinuousRect(
+        rowIndex,
+        columnIndex,
+        offset,
+      ).intersect(bodyRect);
+      _paintCellText(
+        canvas,
+        textRect,
+        textCell.displayValue,
+        textCell.style,
+        textCell.type,
+      );
     }
     stats.paintedCells = painted;
 
@@ -996,6 +1118,16 @@ class _ExcelGridPainter extends CustomPainter {
       metrics.headerHeight + metrics.rowOffsets[originRow] - offset.dy,
       metrics.headerWidth + metrics.columnOffsets[endColumn + 1] - offset.dx,
       metrics.headerHeight + metrics.rowOffsets[endRow + 1] - offset.dy,
+    );
+  }
+
+  Rect _centerContinuousRect(int rowIndex, int columnIndex, Offset offset) {
+    final endColumn = _centerContinuousEndColumn(sheet, rowIndex, columnIndex);
+    return Rect.fromLTRB(
+      metrics.headerWidth + metrics.columnOffsets[columnIndex] - offset.dx,
+      metrics.headerHeight + metrics.rowOffsets[rowIndex] - offset.dy,
+      metrics.headerWidth + metrics.columnOffsets[endColumn + 1] - offset.dx,
+      metrics.headerHeight + metrics.rowOffsets[rowIndex + 1] - offset.dy,
     );
   }
 
@@ -1043,6 +1175,7 @@ class _ExcelGridPainter extends CustomPainter {
     Rect rect,
     String text,
     ExcelCellStyle style,
+    ExcelCellType? cellType,
   ) {
     final padded = _cellPadding.resolve(textDirection).deflateRect(rect);
     if (padded.width <= 0 || padded.height <= 0) {
@@ -1055,7 +1188,10 @@ class _ExcelGridPainter extends CustomPainter {
       maxWidth: padded.width,
       direction: textDirection,
     );
-    final aligned = style.alignment.inscribe(painter.size, padded);
+    final aligned = _cellTextAlignment(
+      style,
+      cellType ?? ExcelCellType.unknown,
+    ).inscribe(painter.size, padded);
     painter.paint(canvas, aligned.topLeft);
   }
 
@@ -1247,6 +1383,10 @@ class _ExcelGridPainter extends CustomPainter {
       // Column headers are never merged; always draw the header strip.
       canvas.drawLine(Offset(x, 0), Offset(x, metrics.headerHeight), paint);
 
+      if (!sheet.showGridLines) {
+        continue;
+      }
+
       // Body: skip segments that fall inside a horizontal merge.
       for (var row = firstRow; row <= lastRow; row++) {
         if (_isInternalVerticalMergeBoundary(
@@ -1279,6 +1419,10 @@ class _ExcelGridPainter extends CustomPainter {
 
       // Row headers are never merged; always draw the header strip.
       canvas.drawLine(Offset(0, y), Offset(metrics.headerWidth, y), paint);
+
+      if (!sheet.showGridLines) {
+        continue;
+      }
 
       // Body: skip segments that fall inside a vertical merge.
       for (var column = firstColumn; column <= lastColumn; column++) {
