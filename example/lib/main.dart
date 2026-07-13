@@ -1,8 +1,7 @@
-import 'dart:typed_data';
-
 import 'package:file_picker/file_picker.dart';
 import 'package:file_preview_kit/file_preview_kit.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 void main() {
   runApp(const ExampleApp());
@@ -62,6 +61,15 @@ class _ExcelPreviewExamplePageState extends State<ExcelPreviewExamplePage> {
     });
   }
 
+  Future<void> _openDemo(String path) async {
+    final data = await rootBundle.load(path);
+
+    setState(() {
+      _bytes = data.buffer.asUint8List();
+      _fileName = path.split('/').last;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final bytes = _bytes;
@@ -79,16 +87,61 @@ class _ExcelPreviewExamplePageState extends State<ExcelPreviewExamplePage> {
         ],
       ),
       body: bytes == null
-          ? Center(
-              child: ElevatedButton.icon(
-                onPressed: _pickFile,
-                icon: const Icon(Icons.folder_open),
-                label: const Text('Choose XLSX, CSV, or DOCX file'),
-              ),
-            )
+          ? _FileActions(onPickFile: _pickFile, onOpenDemo: _openDemo)
           : FilePreviewView(
               source: PreviewSource.bytes(bytes, fileName: fileName),
             ),
     );
   }
 }
+
+class _FileActions extends StatelessWidget {
+  const _FileActions({required this.onPickFile, required this.onOpenDemo});
+
+  final VoidCallback onPickFile;
+  final ValueChanged<String> onOpenDemo;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          ElevatedButton.icon(
+            onPressed: onPickFile,
+            icon: const Icon(Icons.folder_open),
+            label: const Text('Choose XLSX, CSV, or DOCX file'),
+          ),
+          const SizedBox(height: 16),
+          for (final demo in _demoFiles)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: OutlinedButton(
+                onPressed: () => onOpenDemo(demo.path),
+                child: Text(demo.label),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DemoFile {
+  const _DemoFile({required this.label, required this.path});
+
+  final String label;
+  final String path;
+}
+
+const _demoFiles = [
+  _DemoFile(
+    label: 'Open project management demo',
+    path: 'assets/Project-Management-Sample-Data.xlsx',
+  ),
+  _DemoFile(
+    label: 'Open large XLSX demo',
+    path: 'assets/file_example_XLSX_5000.xlsx',
+  ),
+  _DemoFile(label: 'Open DOCX demo', path: 'assets/file-sample_1MB.docx'),
+];
