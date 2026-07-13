@@ -464,6 +464,52 @@ void main() {
     );
   });
 
+  testWidgets('preserves space for unsupported visual content', (tester) async {
+    const document = DocxDocument(
+      blocks: [
+        DocxUnsupportedContent(feature: 'Chart', width: 200, height: 100),
+      ],
+    );
+
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Scaffold(body: DocxPreviewView(document: document)),
+      ),
+    );
+
+    final placeholder = find.byKey(const ValueKey('docx-unsupported-content'));
+    expect(placeholder, findsOneWidget);
+    expect(
+      find.text('This document content is not supported yet.'),
+      findsOneWidget,
+    );
+    expect(tester.getSize(placeholder), const Size(200, 100));
+  });
+
+  testWidgets('localizes unsupported document content', (tester) async {
+    const document = DocxDocument(
+      blocks: [DocxUnsupportedContent(feature: 'Chart')],
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder: (context) => Localizations.override(
+            context: context,
+            locale: const Locale('zh'),
+            child: const Scaffold(body: DocxPreviewView(document: document)),
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('暂不支持预览此文档内容。'), findsOneWidget);
+    expect(
+      find.text('This document content is not supported yet.'),
+      findsNothing,
+    );
+  });
+
   testWidgets('opens inline links and applies paragraph indentation', (
     tester,
   ) async {

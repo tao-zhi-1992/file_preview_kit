@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../../core/file_preview_kit_theme.dart';
+import '../../core/file_preview_kit_texts.dart';
 import '../models/docx_document.dart';
 
 /// Displays a parsed DOCX document as continuous scrollable content.
@@ -13,6 +14,9 @@ class DocxPreviewView extends StatelessWidget {
   /// Optional theme applied within the preview.
   final ThemeData? theme;
 
+  /// Optional user-facing text overrides.
+  final FilePreviewKitTexts? texts;
+
   /// Called when a hyperlink or bookmark is activated.
   final ValueChanged<String>? onLinkTap;
 
@@ -21,6 +25,7 @@ class DocxPreviewView extends StatelessWidget {
     super.key,
     required this.document,
     this.theme,
+    this.texts,
     this.onLinkTap,
   });
 
@@ -28,39 +33,68 @@ class DocxPreviewView extends StatelessWidget {
   Widget build(BuildContext context) {
     return Theme(
       data: theme ?? FilePreviewKitTheme.light,
-      child: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          for (final block in document.blocks)
-            _DocxBlockView(block: block, onLinkTap: onLinkTap),
-          if (document.notes.isNotEmpty)
-            _DocxReferencesView(
-              title: 'Notes',
-              entries: [
-                for (var index = 0; index < document.notes.length; index++)
-                  _DocxReferenceEntry(
-                    label: '${index + 1}.',
-                    blocks: document.notes[index].blocks,
-                  ),
-              ],
-              onLinkTap: onLinkTap,
-            ),
-          if (document.comments.isNotEmpty)
-            _DocxReferencesView(
-              title: 'Comments',
-              entries: [
-                for (var index = 0; index < document.comments.length; index++)
-                  _DocxReferenceEntry(
-                    label:
-                        '${document.comments[index].authorInitials ?? document.comments[index].authorName ?? ''} ${index + 1}.'
-                            .trimLeft(),
-                    blocks: document.comments[index].blocks,
-                  ),
-              ],
-              onLinkTap: onLinkTap,
-            ),
-        ],
+      child: _DocxPreviewContent(
+        document: document,
+        texts: texts,
+        onLinkTap: onLinkTap,
       ),
+    );
+  }
+}
+
+class _DocxPreviewContent extends StatelessWidget {
+  const _DocxPreviewContent({
+    required this.document,
+    required this.texts,
+    required this.onLinkTap,
+  });
+
+  final DocxDocument document;
+  final FilePreviewKitTexts? texts;
+  final ValueChanged<String>? onLinkTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final resolvedTexts =
+        texts ?? FilePreviewKitTexts.resolve(Localizations.localeOf(context));
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        for (final block in document.blocks)
+          _DocxBlockView(
+            block: block,
+            texts: resolvedTexts,
+            onLinkTap: onLinkTap,
+          ),
+        if (document.notes.isNotEmpty)
+          _DocxReferencesView(
+            title: 'Notes',
+            texts: resolvedTexts,
+            entries: [
+              for (var index = 0; index < document.notes.length; index++)
+                _DocxReferenceEntry(
+                  label: '${index + 1}.',
+                  blocks: document.notes[index].blocks,
+                ),
+            ],
+            onLinkTap: onLinkTap,
+          ),
+        if (document.comments.isNotEmpty)
+          _DocxReferencesView(
+            title: 'Comments',
+            texts: resolvedTexts,
+            entries: [
+              for (var index = 0; index < document.comments.length; index++)
+                _DocxReferenceEntry(
+                  label:
+                      '${document.comments[index].authorInitials ?? document.comments[index].authorName ?? ''} ${index + 1}.'
+                          .trimLeft(),
+                  blocks: document.comments[index].blocks,
+                ),
+            ],
+            onLinkTap: onLinkTap,
+          ),
+      ],
     );
   }
 }
@@ -77,9 +111,14 @@ int _tableColumnCount(DocxTable table) {
 
 class _DocxBlockView extends StatelessWidget {
   final DocxBlock block;
+  final FilePreviewKitTexts texts;
   final ValueChanged<String>? onLinkTap;
 
-  const _DocxBlockView({required this.block, this.onLinkTap});
+  const _DocxBlockView({
+    required this.block,
+    required this.texts,
+    this.onLinkTap,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -90,8 +129,16 @@ class _DocxBlockView extends StatelessWidget {
       ),
       DocxHyperlink hyperlink => _DocxHyperlinkView(hyperlink: hyperlink),
       DocxBreak break_ => _DocxBreakView(breakType: break_.breakType),
-      DocxTable table => _DocxTableView(table: table, onLinkTap: onLinkTap),
+      DocxTable table => _DocxTableView(
+        table: table,
+        texts: texts,
+        onLinkTap: onLinkTap,
+      ),
       DocxImage image => _DocxImageView(image: image, onLinkTap: onLinkTap),
+      DocxUnsupportedContent unsupported => _DocxUnsupportedContentView(
+        content: unsupported,
+        message: texts.unsupportedDocxContentMessage,
+      ),
       DocxBookmarkStart _ => const SizedBox.shrink(),
     };
   }
@@ -576,15 +623,100 @@ class _DocxBrokenImage extends StatelessWidget {
 
 const _supportedContentTypes = {'image/png', 'image/jpeg', 'image/gif'};
 
+class _DocxUnsupportedContentView extends StatelessWidget {
+  const _DocxUnsupportedContentView({
+    required this.content,
+    required this.message,
+  });
+
+  final DocxUnsupportedContent content;
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final sourceWidth = content.width ?? 240;
+          final sourceHeight = content.height ?? 120;
+          final scale = constraints.maxWidth < sourceWidth
+              ? constraints.maxWidth / sourceWidth
+              : 1.0;
+          return _DocxUnsupportedBox(
+            message: message,
+            width: sourceWidth * scale,
+            height: math.min(sourceHeight * scale, 480),
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _DocxUnsupportedBox extends StatelessWidget {
+  const _DocxUnsupportedBox({
+    required this.message,
+    required this.width,
+    required this.height,
+  });
+
+  final String message;
+  final double width;
+  final double height;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Container(
+        key: const ValueKey('docx-unsupported-content'),
+        width: width,
+        height: height,
+        decoration: BoxDecoration(
+          color: colors.surfaceContainerHighest,
+          border: Border.all(color: colors.outlineVariant),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.insert_chart_outlined, color: colors.onSurfaceVariant),
+              const SizedBox(height: 8),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                child: Text(
+                  message,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: colors.onSurfaceVariant),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Table
 // ---------------------------------------------------------------------------
 
 class _DocxTableView extends StatelessWidget {
   final DocxTable table;
+  final FilePreviewKitTexts texts;
   final ValueChanged<String>? onLinkTap;
 
-  const _DocxTableView({required this.table, this.onLinkTap});
+  const _DocxTableView({
+    required this.table,
+    required this.texts,
+    this.onLinkTap,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -604,6 +736,7 @@ class _DocxTableView extends StatelessWidget {
               row: table.rows[rowIndex],
               rowIndex: rowIndex,
               columnCount: columnCount,
+              texts: texts,
               onLinkTap: onLinkTap,
             ),
         ],
@@ -617,6 +750,7 @@ class _DocxTableRowView extends StatelessWidget {
   final DocxTableRow row;
   final int rowIndex;
   final int columnCount;
+  final FilePreviewKitTexts texts;
   final ValueChanged<String>? onLinkTap;
 
   const _DocxTableRowView({
@@ -624,6 +758,7 @@ class _DocxTableRowView extends StatelessWidget {
     required this.row,
     required this.rowIndex,
     required this.columnCount,
+    required this.texts,
     this.onLinkTap,
   });
 
@@ -689,7 +824,7 @@ class _DocxTableRowView extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           for (final block in cell.blocks)
-            _DocxBlockView(block: block, onLinkTap: onLinkTap),
+            _DocxBlockView(block: block, texts: texts, onLinkTap: onLinkTap),
         ],
       ),
     );
@@ -725,11 +860,13 @@ class _DocxReferenceEntry {
 class _DocxReferencesView extends StatelessWidget {
   final String title;
   final List<_DocxReferenceEntry> entries;
+  final FilePreviewKitTexts texts;
   final ValueChanged<String>? onLinkTap;
 
   const _DocxReferencesView({
     required this.title,
     required this.entries,
+    required this.texts,
     this.onLinkTap,
   });
 
@@ -741,7 +878,11 @@ class _DocxReferencesView extends StatelessWidget {
         const Divider(),
         Text(title, style: Theme.of(context).textTheme.titleMedium),
         for (final entry in entries)
-          _DocxReferenceEntryView(entry: entry, onLinkTap: onLinkTap),
+          _DocxReferenceEntryView(
+            entry: entry,
+            texts: texts,
+            onLinkTap: onLinkTap,
+          ),
       ],
     );
   }
@@ -749,9 +890,14 @@ class _DocxReferencesView extends StatelessWidget {
 
 class _DocxReferenceEntryView extends StatelessWidget {
   final _DocxReferenceEntry entry;
+  final FilePreviewKitTexts texts;
   final ValueChanged<String>? onLinkTap;
 
-  const _DocxReferenceEntryView({required this.entry, this.onLinkTap});
+  const _DocxReferenceEntryView({
+    required this.entry,
+    required this.texts,
+    this.onLinkTap,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -765,6 +911,7 @@ class _DocxReferenceEntryView extends StatelessWidget {
         Expanded(
           child: _DocxReferenceBlocks(
             blocks: entry.blocks,
+            texts: texts,
             onLinkTap: onLinkTap,
           ),
         ),
@@ -775,9 +922,14 @@ class _DocxReferenceEntryView extends StatelessWidget {
 
 class _DocxReferenceBlocks extends StatelessWidget {
   final List<DocxBlock> blocks;
+  final FilePreviewKitTexts texts;
   final ValueChanged<String>? onLinkTap;
 
-  const _DocxReferenceBlocks({required this.blocks, this.onLinkTap});
+  const _DocxReferenceBlocks({
+    required this.blocks,
+    required this.texts,
+    this.onLinkTap,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -785,7 +937,7 @@ class _DocxReferenceBlocks extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         for (final block in blocks)
-          _DocxBlockView(block: block, onLinkTap: onLinkTap),
+          _DocxBlockView(block: block, texts: texts, onLinkTap: onLinkTap),
       ],
     );
   }

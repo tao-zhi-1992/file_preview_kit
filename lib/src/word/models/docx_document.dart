@@ -256,6 +256,24 @@ class DocxImage extends DocxBlock {
 }
 
 // ---------------------------------------------------------------------------
+// Unsupported visual content block
+// ---------------------------------------------------------------------------
+
+/// Visual DOCX content that cannot currently be rendered.
+class DocxUnsupportedContent extends DocxBlock {
+  final String feature;
+  final double? width;
+  final double? height;
+
+  /// Creates a placeholder for an unsupported visual feature.
+  const DocxUnsupportedContent({
+    required this.feature,
+    this.width,
+    this.height,
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Notes and comments
 // ---------------------------------------------------------------------------
 

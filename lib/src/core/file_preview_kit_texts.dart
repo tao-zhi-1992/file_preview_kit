@@ -20,6 +20,9 @@ class FilePreviewKitTexts {
   /// Message shown when the selected sheet is empty.
   final String emptySheet;
 
+  /// Message shown for unsupported visual content inside a DOCX file.
+  final String unsupportedDocxContentMessage;
+
   /// Creates a complete custom text set.
   const FilePreviewKitTexts({
     required this.previewFailedTitle,
@@ -28,6 +31,8 @@ class FilePreviewKitTexts {
     required this.unsupportedFileMessage,
     required this.noSheetsFound,
     required this.emptySheet,
+    this.unsupportedDocxContentMessage =
+        'This document content is not supported yet.',
   });
 
   /// Default English text.
@@ -37,7 +42,9 @@ class FilePreviewKitTexts {
       unsupportedFileTitle = 'Unsupported file type',
       unsupportedFileMessage = 'This file format is not supported yet.',
       noSheetsFound = 'No sheets found',
-      emptySheet = 'Empty sheet';
+      emptySheet = 'Empty sheet',
+      unsupportedDocxContentMessage =
+          'This document content is not supported yet.';
 
   /// Default Simplified Chinese text.
   const FilePreviewKitTexts.zhHans()
@@ -46,7 +53,8 @@ class FilePreviewKitTexts {
       unsupportedFileTitle = '不支持的文件类型',
       unsupportedFileMessage = '暂不支持预览此文件格式。',
       noSheetsFound = '未找到工作表',
-      emptySheet = '空工作表';
+      emptySheet = '空工作表',
+      unsupportedDocxContentMessage = '暂不支持预览此文档内容。';
 
   /// Resolves built-in text for [locale].
   static FilePreviewKitTexts resolve(Locale locale) {

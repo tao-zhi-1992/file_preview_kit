@@ -300,6 +300,22 @@ void main() {
     expect(image.contentType, 'application/octet-stream');
   });
 
+  test('keeps an unsupported chart block with its original dimensions', () {
+    final document = parser.parseBytes(
+      _documentBytes(
+        '<w:p><w:r><w:t>Before</w:t></w:r></w:p>'
+        '<w:p><w:r>$_chartDrawing</w:r></w:p>'
+        '<w:p><w:r><w:t>After</w:t></w:r></w:p>',
+      ),
+    );
+
+    expect(document.blocks, hasLength(3));
+    final chart = document.blocks[1] as DocxUnsupportedContent;
+    expect(chart.feature, 'Chart');
+    expect(chart.width, 200);
+    expect(chart.height, 100);
+  });
+
   test('parses hyperlink inside paragraph', () {
     final document = parser.parseBytes(
       _documentBytes(
@@ -810,3 +826,6 @@ String _relationshipsPath(String path) {
 
 const _drawing =
     '''<w:drawing><wp:inline><wp:extent cx="952500" cy="476250"/><a:graphic><a:graphicData><a:blip r:embed="missing"/></a:graphicData></a:graphic></wp:inline></w:drawing>''';
+
+const _chartDrawing =
+    '''<w:drawing><wp:inline><wp:extent cx="1905000" cy="952500"/><a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/chart"><c:chart xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart" r:id="chart1"/></a:graphicData></a:graphic></wp:inline></w:drawing>''';

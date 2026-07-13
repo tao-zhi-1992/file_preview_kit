@@ -560,15 +560,21 @@ class DocxParser {
         case 'drawing' || 'pict':
           addTextRun();
           final images = _parseImages(child, state);
-          if (images.isNotEmpty) {
+          final unsupported = images.isEmpty
+              ? _parseUnsupportedContent(child)
+              : null;
+          if (images.isNotEmpty || unsupported != null) {
             // Only emit an empty paragraph when there is a pending list, so
-            // that list numbering resumes after the image.
+            // that list numbering resumes after the visual content.
             if (hasList) {
               addParagraph(evenWhenEmpty: true);
             } else {
               addParagraph();
             }
             blocks.addAll(images);
+            if (unsupported != null) {
+              blocks.add(unsupported);
+            }
           }
           for (final textBox in child.descendants.whereType<XmlElement>().where(
             (element) => element.name.local == 'txbxContent',
@@ -757,6 +763,29 @@ class DocxParser {
     }
 
     return images;
+  }
+
+  DocxUnsupportedContent? _parseUnsupportedContent(XmlElement drawing) {
+    final graphicData = drawing.descendants
+        .whereType<XmlElement>()
+        .where((element) => element.name.local == 'graphicData')
+        .firstOrNull;
+    final uri = _attribute(graphicData, 'uri');
+    if (uri == null || uri.endsWith('/picture')) {
+      return null;
+    }
+
+    final extent = _firstDescendant(drawing, 'extent');
+    final feature = uri.endsWith('/chart')
+        ? 'Chart'
+        : uri.contains('/diagram')
+        ? 'SmartArt'
+        : 'Document feature';
+    return DocxUnsupportedContent(
+      feature: feature,
+      width: _emuToPixels(_attribute(extent, 'cx')),
+      height: _emuToPixels(_attribute(extent, 'cy')),
+    );
   }
 
   // -----------------------------------------------------------------------

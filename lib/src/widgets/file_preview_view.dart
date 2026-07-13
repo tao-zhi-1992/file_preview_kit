@@ -120,6 +120,7 @@ class _FilePreviewViewState extends State<FilePreviewView> {
       ),
       DocxPreviewContent(:final document) => DocxPreviewView(
         document: document,
+        texts: texts,
         theme: theme,
         onLinkTap: widget.onLinkTap,
       ),
