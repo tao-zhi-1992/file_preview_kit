@@ -1,8 +1,8 @@
 # File Preview Kit
 
 <p>
-  <img src="https://raw.githubusercontent.com/tao-zhi-1992/file_preview_kit/master/example/assets/Screenrecorder-2026-07-13-11-00-07-730.gif" width="48%" alt="File preview demo 1">
-  <img src="https://raw.githubusercontent.com/tao-zhi-1992/file_preview_kit/master/example/assets/Screenrecorder-2026-07-13-13-20-54-385.gif" width="48%" alt="File preview demo 2">
+  <img src="https://raw.githubusercontent.com/tao-zhi-1992/file_preview_kit/master/example/assets/Screenrecorder-2026-07-13-11-00-07-730.gif" width="200px" alt="File preview demo 1">
+  <img src="https://raw.githubusercontent.com/tao-zhi-1992/file_preview_kit/master/example/assets/Screenrecorder-2026-07-13-13-20-54-385.gif" width="200px" alt="File preview demo 2">
 </p>
 
 > [!WARNING]
