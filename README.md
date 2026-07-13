@@ -1,8 +1,8 @@
 # File Preview Kit
 
 <p>
-  <img src="example/assets/Screenrecorder-2026-07-13-11-00-07-730.gif" width="48%" alt="File preview demo 1">
-  <img src="example/assets/Screenrecorder-2026-07-13-13-20-54-385.gif" width="48%" alt="File preview demo 2">
+  <img src="https://raw.githubusercontent.com/tao-zhi-1992/file_preview_kit/master/example/assets/Screenrecorder-2026-07-13-11-00-07-730.gif" width="48%" alt="File preview demo 1">
+  <img src="https://raw.githubusercontent.com/tao-zhi-1992/file_preview_kit/master/example/assets/Screenrecorder-2026-07-13-13-20-54-385.gif" width="48%" alt="File preview demo 2">
 </p>
 
 > [!WARNING]
@@ -30,7 +30,7 @@ Treat this section as the usage contract for generated code.
 
 ```yaml
 dependencies:
-  file_preview_kit: ^0.0.4
+  file_preview_kit: ^0.0.5
 ```
 
 ### Preferred usage

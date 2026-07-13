@@ -1,3 +1,8 @@
+## 0.0.5
+
+- Compressed README demo GIFs and switched their links to stable absolute URLs
+  for pub.dev rendering.
+
 ## 0.0.4
 
 - Added placeholders for unsupported DOCX visual content, preserving the
