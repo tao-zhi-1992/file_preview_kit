@@ -30,7 +30,7 @@ Treat this section as the usage contract for generated code.
 
 ```yaml
 dependencies:
-  file_preview_kit: ^0.0.1
+  file_preview_kit: ^0.0.4
 ```
 
 ### Preferred usage

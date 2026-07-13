@@ -1,3 +1,11 @@
+## 0.0.4
+
+- Added placeholders for unsupported DOCX visual content, preserving the
+  source dimensions and localized user-facing messages.
+- Improved XLSX rendering for `centerContinuous` titles, hidden worksheet grid
+  lines, and Excel General alignment of numeric, date, and percentage values.
+- Added bundled example-file shortcuts and GIF demo recordings.
+
 ## 0.0.3
 
 - Fixed Canvas Excel grid merges: skip internal grid lines inside merge
